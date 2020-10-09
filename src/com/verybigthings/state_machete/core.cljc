@@ -62,7 +62,7 @@
        :else
        selected-ids'))))
 
-(defn select-transition-states-to-exit [fsm {:keys [transition domain]}]
+(defn select-transition-states-to-exit [fsm {:keys [domain]}]
   (let [domain-path   (:fsm/path domain)
         active-states (get-in fsm [:fsm/state :active])
         exit-paths    (reduce
@@ -115,29 +115,48 @@
         matching-transition
         (recur fsm event (get-in state [:fsm/parent-state :fsm/id]))))))
 
+(defn get-transition-parent-state [fsm transition]
+  (let [transition-state-id (get-in transition [:fsm/parent-state :fsm/id])
+        transition-state    (get-in fsm [:fsm/index :by-id transition-state-id])]
+    (loop [state-id (get-in transition-state [:fsm/parent-state :fsm/id])]
+      (let [state (get-in fsm [:fsm/index :by-id state-id])]
+        (when state
+          (if (= :compound (:fsm.state/type state))
+            state
+            (recur (get-in state [:fsm/parent-state :fsm/id]))))))))
+
 (defn get-transition-domain [fsm transition]
   (when transition
-    (let [transition-parent-state-path (get-in transition [:fsm/parent-state :fsm/path])
+    (let [transition-parent-state      (get-transition-parent-state fsm transition)
+          transition-parent-state-path (:fsm/path transition-parent-state)
           transition-target-ids        (:fsm.transition/target transition)
-          transition-targets-paths     (->> transition-target-ids
-                                         (map #(get-in fsm [:fsm/index :by-id % :fsm/path])))
-          common-ancestor-path         (loop [p transition-parent-state-path
-                                              i 0]
-                                         (let [comparing-path (or (subvec p 0 i) [])]
-                                           (cond
-                                             (not (every? #(descendant-path? comparing-path %) transition-targets-paths))
-                                             (subvec p 0 (dec i))
+          transition-targets-paths     (remove nil? (map #(get-in fsm [:fsm/index :by-id % :fsm/path]) transition-target-ids))
+          common-ancestor-path         (when (seq transition-targets-paths)
+                                         (loop [p transition-parent-state-path
+                                                i 0]
+                                           (let [comparing-path (or (subvec p 0 i) [])]
+                                             (cond
+                                               (not (every? #(descendant-path? comparing-path %) transition-targets-paths))
+                                               (subvec p 0 (dec i))
 
-                                             (= p comparing-path)
-                                             comparing-path
+                                               (= p comparing-path)
+                                               comparing-path
 
-                                             :else
-                                             (recur p (inc i)))))]
+                                               :else
+                                               (recur p (inc i))))))]
       (loop [p common-ancestor-path]
         (when-let [state (get-in fsm [:fsm/index :by-path p])]
           (if (= :compound (:fsm.state/type state))
             state
             (recur (get-in state [:fsm/parent-state :fsm/path]))))))))
+
+(defn paths-overlap? [p1 p2]
+  (let [c1 (count p1)
+        c2 (count p2)]
+    (if (or (zero? c1) (zero? c2))
+      true
+      (let [c (min c1 c2)]
+        (= (subvec p1 0 c) (subvec p2 0 c))))))
 
 (defn get-event-transitions-with-domain [fsm event]
   (let [atomic-states (get-active-atomic-states fsm)
@@ -152,15 +171,14 @@
                         atomic-states)
         sorted-transitions (sort
                              #(lexicographic-compare
-                                (get-in %1 [:domain :fsm/path])
-                                (get-in %2 [:domain :fsm/path]))
+                                (get-in %1 [:transition :fsm/path])
+                                (get-in %2 [:transition :fsm/path]))
                              transitions)]
-    ;; TODO: Filter out transitions with overlapping domains
     (reduce
       (fn [acc t]
         (let [paths (map #(get-in % [:domain :fsm/path]) acc)
               path (get-in t [:domain :fsm/path])]
-          (if (some #(descendant-path? % path) paths)
+          (if (some #(paths-overlap? % path) paths)
             acc
             (conj acc t))))
       #{}

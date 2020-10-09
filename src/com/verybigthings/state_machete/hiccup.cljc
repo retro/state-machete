@@ -35,11 +35,21 @@
 (>def :fsm.transition/cond
   keyword?)
 
+(>def :fsm.transition.event/multiple
+  (s/coll-of keyword?))
+
 (>def :fsm.transition/event
-  keyword?)
+  (s/or
+    :keyword keyword?
+    :multiple :fsm.transition.event/multiple))
+
+(>def :fsm.transition.target/multiple
+  (s/coll-of keyword?))
 
 (>def :fsm.transition/target
-  keyword?)
+  (s/or
+    :keyword keyword?
+    :multiple :fsm.transition.target/multiple))
 
 (>def :fsm/initial
   keyword?)
@@ -128,13 +138,8 @@
 (>def ::expanded-node
   map?)
 
-(defn expand-partials [child-nodes]
-  (mapcat
-    (fn [node]
-      (if (= :<> (first node))
-        (rest node)
-        [node]))
-    child-nodes))
+(defn keyword-or-coll->set [v]
+  (if (keyword? v) #{v} (set v)))
 
 (defn get-node-name-and-id [node-name-id]
   (let [ns (namespace node-name-id)
@@ -155,15 +160,22 @@
 
 (defn process-transition [attrs context]
   (-> attrs
-    (update :fsm.transition/event #(when (and % (not= :* %)) (-> [%] flatten set)))
-    (update :fsm.transition/target #(when % (-> [%] flatten set)))
+    (update :fsm.transition/event #(when (and % (not= :* %)) (keyword-or-coll->set %)))
+    (update :fsm.transition/target #(when % (keyword-or-coll->set %)))
     (update :fsm.transition/type #(or % :external))
     (update :fsm.transition/cond #(get-in context [:fsm/guards %] (constantly true)))))
 
+(defn expand-partials [child-nodes]
+  (mapcat
+    (fn [node]
+      (if (= :<> (first node))
+        (rest node)
+        [node]))
+    child-nodes))
+
 (defn expand-node [context [node-name-id & children]]
   (let [[node-name inline-id] (get-node-name-and-id node-name-id)
-        first-child       (first children)
-        rest-children     (rest children)
+        [first-child & rest-children] children
         attrs             (if (map? first-child) first-child {})
         id                (or (:fsm/id attrs) inline-id (keyword (gensym "fsm/id-")))
         path              (get-in context [:fsm/cursor :path])
