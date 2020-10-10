@@ -17,6 +17,7 @@
     <orderEntry type="library" name="Deps: org.clojure/spec.alpha:0.2.187" level="project" />
     <orderEntry type="library" name="Deps: org.clojure/tools.cli:1.0.194" level="project" />
     <orderEntry type="library" name="Deps: mvxcvi/puget:1.1.2" level="project" />
+    <orderEntry type="library" name="Deps: lambdaisland/regal:0.0.89" level="project" />
     <orderEntry type="library" name="Deps: com.taoensso/encore:2.91.0" level="project" />
     <orderEntry type="library" name="Deps: net.incongru.watchservice/barbary-watchservice:1.0" level="project" />
     <orderEntry type="library" name="Deps: lambdaisland/deep-diff:0.0-47" level="project" />

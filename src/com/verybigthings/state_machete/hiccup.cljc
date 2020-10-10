@@ -1,9 +1,10 @@
 (ns com.verybigthings.state-machete.hiccup
   (:refer-clojure :exclude [compile])
-  (:require [com.verybigthings.state-machete.spec :as sm-spec]
+  (:require [com.verybigthings.state-machete.util :refer [keyword-or-coll->set]]
             [clojure.spec.alpha :as s]
             [com.fulcrologic.guardrails.core :refer [>defn >def | ? =>]]
-            [clojure.string :as str]))
+            [clojure.string :as str]
+            [lambdaisland.regal :as regal]))
 
 (defn make-valid-node-name? [base-node-kw]
   (let [base-node-ns (namespace base-node-kw)
@@ -17,23 +18,27 @@
 
 (def state-nodes #{:fsm/parallel :fsm/state :fsm/history :fsm/final})
 
-(>def :fsm/on
-  keyword?)
+(>def :fsm/on-handler
+  (s/or
+    :keyword keyword?
+    :fn fn?))
 
-(>def :fsm.on/enter
-  keyword?)
+(>def :fsm/on :fsm/on-handler)
 
-(>def :fsm.on/exit
-  keyword?)
+(>def :fsm.on/enter :fsm/on-handler)
 
-(>def :fsm.on/initial
-  keyword?)
+(>def :fsm.on/exit :fsm/on-handler)
+
+(>def :fsm.on/initial :fsm/on-handler)
 
 (>def :fsm/id
-  any?)
+  keyword?)
 
 (>def :fsm.transition/cond
-  keyword?)
+  (s/or
+    :keyword keyword?
+    :boolean boolean?
+    :function fn?))
 
 (>def :fsm.transition.event/multiple
   (s/coll-of keyword?))
@@ -138,12 +143,12 @@
 (>def ::expanded-node
   map?)
 
-(defn keyword-or-coll->set [v]
-  (if (keyword? v) #{v} (set v)))
+(def split-at-dot-re (regal/regex [:cat "."]))
+(def split-at-hash-re (regal/regex [:cat "#"]))
 
 (defn get-node-name-and-id [node-name-id]
   (let [ns (namespace node-name-id)
-        [node-name id] (-> node-name-id name (str/split #"#"))
+        [node-name id] (-> node-name-id name (str/split split-at-hash-re))
         node-name-kw (keyword ns node-name)]
     (if (= :fsm/root node-name-kw)
       [:fsm/state :fsm/root]
@@ -158,12 +163,84 @@
         initial-id)
       (first child-state-ids))))
 
+(defn default-handler [fsm & _] fsm)
+
+(defn process-handler [handler context]
+  (if (keyword? handler)
+    (let [handler' (get-in context [:fsm/handlers handler])]
+      (assert handler' (str "Handler named " handler " doesn't exist"))
+      handler')
+    (or handler default-handler)))
+
+(defn drop-last-wildcard [event-name-parts]
+  (if (= "*" (last event-name-parts))
+    (butlast event-name-parts)
+    event-name-parts))
+
+(defn process-transition-event [event]
+  (when event
+    (let [event-set (keyword-or-coll->set event)]
+      (->> event-set
+        (map
+          (fn [e]
+            (if (= :* e)
+              {:length -1 :matcher (constantly true)}
+              (let [e-name  (name e)
+                    e-parts (-> e-name (str/split split-at-dot-re) drop-last-wildcard)
+                    regex   (-> (concat
+                                  [:cat :start]
+                                  (->> e-parts
+                                    (map (fn [p] (if (= "*" p) [:+ :any] p)))
+                                    (interpose "."))
+                                  [[:* "." [:+ :any]]
+                                   :end])
+                              regal/regex)]
+                {:length (count e-parts) :matcher #(re-matches regex %)}))))
+        (sort-by :length)
+        (map :matcher)))))
+
+(defn make-transition-guard [guards]
+  (fn [fsm event]
+    (reduce
+      (fn [acc guard]
+        (if (guard fsm event)
+          acc
+          (reduced false)))
+      true
+      guards)))
+
+(defn process-transition-cond [t-cond context]
+  (if (nil? t-cond)
+    (constantly true)
+    (let [t-cond-coll (if (coll? t-cond) t-cond [t-cond])]
+      (->> t-cond-coll
+        (map
+          (fn [t-cond]
+            (cond
+              (boolean? t-cond)
+              (constantly t-cond)
+
+              (fn? t-cond)
+              t-cond
+
+              (keyword? t-cond)
+              (let [guard (get-in context [:fsm/guards t-cond])]
+                (assert guard (str "Guard " t-cond " is not provided"))
+                guard))))
+        make-transition-guard))))
+
 (defn process-transition [attrs context]
   (-> attrs
-    (update :fsm.transition/event #(when (and % (not= :* %)) (keyword-or-coll->set %)))
+    (update :fsm.transition/event process-transition-event)
     (update :fsm.transition/target #(when % (keyword-or-coll->set %)))
     (update :fsm.transition/type #(or % :external))
-    (update :fsm.transition/cond #(get-in context [:fsm/guards %] (constantly true)))))
+    (update :fsm.transition/cond process-transition-cond context)
+    (update :fsm/on process-handler context)))
+
+(defn process-state-handlers [attrs context]
+  (-> attrs
+    (update :fsm.on/enter process-handler context)
+    (update :fsm.on/exit process-handler context)))
 
 (defn expand-partials [child-nodes]
   (mapcat
@@ -179,8 +256,9 @@
         attrs             (if (map? first-child) first-child {})
         id                (or (:fsm/id attrs) inline-id (keyword (gensym "fsm/id-")))
         path              (get-in context [:fsm/cursor :path])
+        is-state-node     (contains? state-nodes node-name)
         child-context     (cond-> context
-                            (contains? state-nodes node-name)
+                            is-state-node
                             (assoc-in [:fsm/cursor :parent-state] {:fsm/id id :fsm/path path}))
         child-nodes       (->> (if (map? first-child) rest-children children)
                             expand-partials
@@ -207,6 +285,9 @@
 
       (and (= :fsm/transition node-name))
       (process-transition context)
+
+      is-state-node
+      (process-state-handlers context)
 
       (seq child-nodes)
       (assoc :fsm/children child-nodes)

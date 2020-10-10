@@ -16,3 +16,5 @@
          -1
          0)))))
 
+(defn keyword-or-coll->set [v]
+  (if (keyword? v) #{v} (set v)))
