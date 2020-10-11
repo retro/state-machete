@@ -9,13 +9,15 @@
 (defn assert-states [fsm initial-expected-state & events-expected-states]
   (is (= initial-expected-state (c/get-active-atomic-states fsm)))
   (loop [events-expected-states events-expected-states
-         fsm fsm]
-    (let [[[event expected-state] & rest-events-expected-states] events-expected-states
-          fsm' (c/trigger fsm event)]
-      (is (= expected-state (c/get-active-atomic-states fsm')))
-      (if (seq rest-events-expected-states)
-        (recur rest-events-expected-states fsm')
-        fsm'))))
+         fsm                    fsm]
+    (let [[first-event-expected-state & rest-events-expected-states] events-expected-states]
+      (if first-event-expected-state
+        (let [[event expected-state] first-event-expected-state
+              _ (println "********************************************************************************************")
+              fsm' (c/trigger fsm event)]
+          (is (= expected-state (c/get-active-atomic-states fsm')))
+          (recur rest-events-expected-states fsm'))
+        fsm))))
 
 (defn make-fsm
   ([fsm] (make-fsm fsm {}))
@@ -475,15 +477,15 @@
 
 ;; TODO: figure out this behavior
 #_(deftest misc-deep-initial
-  (let [fsm
-        (make-fsm
-          [:fsm/root {:fsm/initial :s2}
-           [:fsm/state]
-           [:fsm/state#uber
-            [:fsm/state#s1
-             [:fsm/transition #:fsm.transition{:event :ev1 :target :s2}]]
-            [:fsm/state#s2]]])]
-    (is (= #{:s2} (c/get-active-atomic-states fsm)))))
+    (let [fsm
+          (make-fsm
+            [:fsm/root {:fsm/initial :s2}
+             [:fsm/state]
+             [:fsm/state#uber
+              [:fsm/state#s1
+               [:fsm/transition #:fsm.transition{:event :ev1 :target :s2}]]
+              [:fsm/state#s2]]])]
+      (is (= #{:s2} (c/get-active-atomic-states fsm)))))
 
 (deftest multiple-events-per-transition-0
   (let [fsm
@@ -1346,7 +1348,7 @@
               [:fsm/transition
                #:fsm.transition{:event :t2
                                 :target :b2
-                                :fsm/on (fn [fsm & _] (c/update-in-data fsm [:i] inc)) }]]
+                                :fsm/on (fn [fsm & _] (c/update-in-data fsm [:i] inc))}]]
              [:fsm/state#b2]]
             [:fsm/state#c {:fsm/initial :c1}
              [:fsm/state#c1
@@ -1377,7 +1379,7 @@
            [:fsm/state#b
             {:fsm.on/enter (fn [fsm & _] (c/update-in-data fsm [:x] * 3))}
             [:fsm/state#b1
-             {:fsm.on/enter (fn [fsm & _] (c/update-in-data fsm [:x] * 5 ))}]
+             {:fsm.on/enter (fn [fsm & _] (c/update-in-data fsm [:x] * 5))}]
             [:fsm/state#b2
              {:fsm.on/enter (fn [fsm & _] (c/update-in-data fsm [:x] * 7))}]
             [:fsm/transition #:fsm.transition{:target :c :cond (fn [fsm & _] (= 30 (c/get-in-data fsm [:x])))}]
@@ -1387,3 +1389,514 @@
     (assert-states
       fsm #{:a}
       [{:fsm/event :t} #{:c}])))
+
+(deftest internal-transitions-0
+  (let [inc-x (fn [fsm & _] (c/update-in-data fsm [:x] inc))
+        get-x #(c/get-in-data % [:x])
+        fsm   (make-fsm
+                [:fsm/root
+                 {:fsm.on/enter (fn [fsm & _] (c/assoc-in-data fsm [:x] 0))}
+                 [:fsm/state#a
+                  {:fsm.on/enter inc-x
+                   :fsm.on/exit inc-x}
+                  [:fsm/state#a1]
+                  [:fsm/state#a2
+                   [:fsm/transition
+                    #:fsm.transition{:target :b :event :t2 :cond (fn [fsm & _] (= 1 (get-x fsm)))}]]
+                  [:fsm/transition
+                   #:fsm.transition{:target :a2 :event :t1 :type :internal :cond (fn [fsm & _] (= 1 (get-x fsm)))}]]
+                 [:fsm/state#b
+                  [:fsm/transition
+                   #:fsm.transition{:target :c :event :t3 :cond (fn [fsm & _] (= 2 (get-x fsm)))}]]
+                 [:fsm/state#c]])]
+    (assert-states
+      fsm #{:a1}
+      [{:fsm/event :t1} #{:a2}]
+      [{:fsm/event :t2} #{:b}]
+      [{:fsm/event :t3} #{:c}])))
+
+(deftest internal-transitions-1
+  (let [inc-x (fn [fsm & _] (c/update-in-data fsm [:x] inc))
+        fsm   (make-fsm
+                [:fsm/root
+                 {:fsm.on/enter (fn [fsm & _] (c/assoc-in-data fsm :x 0))}
+                 [:fsm/parallel#p
+                  {:fsm.on/enter inc-x
+                   :fsm.on/exit inc-x}
+                  [:fsm/state#a
+                   {:fsm.on/enter inc-x
+                    :fsm.on/exit inc-x}
+                   [:fsm/state#a1
+                    {:fsm.on/enter inc-x
+                     :fsm.on/exit inc-x}]
+                   [:fsm/state#a2
+                    {:fsm.on/enter inc-x
+                     :fsm.on/exit inc-x}
+                    [:fsm/transition
+                     #:fsm.transition{:target :c :event :t2 :cond (fn [fsm & _] (= 5 (c/get-in-data fsm :x)))}]]
+                   [:fsm/transition
+                    #:fsm.transition{:target :a2 :event :t1 :type :internal :cond (fn [fsm & _] (= 3 (c/get-in-data fsm :x)))}]]
+                  [:fsm/state#b
+                   [:fsm/state#b1]
+                   [:fsm/state#b2]]]
+                 [:fsm/state#c
+                  [:fsm/transition
+                   #:fsm.transition{:target :d :event :t3 :cond (fn [fsm & _] (= 8 (c/get-in-data fsm :x)))}]]
+                 [:fsm/state#d]])]
+    (assert-states
+      fsm #{:a1 :b1}
+      [{:fsm/event :t1} #{:a2 :b1}]
+      [{:fsm/event :t2} #{:c}]
+      [{:fsm/event :t3} #{:d}])))
+
+(deftest in-predicate
+  (let [fsm
+        (make-fsm
+          [:fsm/root
+           [:fsm/parallel#p1
+            [:fsm/state#r1 {:fsm/initial :a1}
+             [:fsm/state#a1
+              [:fsm/transition
+               #:fsm.transition{:event :t1 :target :b1 :cond (fn [fsm & _] (c/in-state? fsm :a1))}]]
+             [:fsm/state#b1
+              [:fsm/transition
+               #:fsm.transition{:event :t2 :target :c1 :cond (fn [fsm & _] (c/in-state? fsm :r1))}]]
+             [:fsm/state#c1
+              [:fsm/transition
+               #:fsm.transition{:event :t3 :target :d1 :cond (fn [fsm & _] (c/in-state? fsm :p1))}]]
+             [:fsm/state#d1
+              [:fsm/transition
+               #:fsm.transition{:event :t4 :target :e1 :cond (fn [fsm & _] (not (c/in-state? fsm :e2)))}]]
+             [:fsm/state#e1
+              [:fsm/transition
+               #:fsm.transition{:event :t5 :target :f1 :cond (fn [fsm & _] (not (c/in-state? fsm :c2)))}]]
+             [:fsm/state#f1
+              [:fsm/transition
+               #:fsm.transition{:event :t6
+                                :target :g1
+                                :cond (fn [fsm & _] (c/in-state? fsm :a2))
+                                :fsm/on (fn [fsm & _] (c/raise fsm {:fsm/event :gen1}))}]]
+             [:fsm/state#g1
+              [:fsm/transition
+               #:fsm.transition{:event :t7
+                                :target :h1
+                                :cond (fn [fsm & _] (c/in-state? fsm :b2))
+                                :fsm/on (fn [fsm & _] (c/raise fsm {:fsm/event :gen2}))}]]
+             [:fsm/state#h1
+              [:fsm/transition
+               #:fsm.transition{:event :t8 :target :i1 :cond (fn [fsm & _] (c/in-state? fsm :c2))}]]
+             [:fsm/state#i1
+              [:fsm/transition
+               #:fsm.transition{:event :t9
+                                :target :j1
+                                :cond (fn [fsm & _] (c/in-state? fsm :d2))
+                                :fsm/on (fn [fsm & _] (c/raise fsm {:fsm/event :gen3}))}]]
+             [:fsm/state#j1
+              [:fsm/transition
+               #:fsm.transition{:event :t10 :target :k1 :cond (fn [fsm & _] (c/in-state? fsm :e2))}]]
+             [:fsm/state#k1]]
+            [:fsm/state#r2 {:fsm/initial :a2}
+             [:fsm/state#a2
+              [:fsm/transition
+               #:fsm.transition{:event :gen1 :target :b2}]]
+             [:fsm/state#b2
+              [:fsm/transition
+               #:fsm.transition{:event :gen2 :target :c2}]]
+             [:fsm/state#c2 {:fsm/initial :d2}
+              [:fsm/state#d2
+               [:fsm/transition
+                #:fsm.transition{:event :gen3 :target :e2}]]
+              [:fsm/state#e2]]]]])]
+    (assert-states
+      fsm #{:a1 :a2}
+      [{:fsm/event :t1} #{:a2 :b1}]
+      [{:fsm/event :t2} #{:a2 :c1}]
+      [{:fsm/event :t3} #{:a2 :d1}]
+      [{:fsm/event :t4} #{:a2 :e1}]
+      [{:fsm/event :t5} #{:a2 :f1}]
+      [{:fsm/event :t6} #{:g1 :b2}]
+      [{:fsm/event :t7} #{:h1 :d2}]
+      [{:fsm/event :t8} #{:i1 :d2}]
+      [{:fsm/event :t9} #{:j1 :e2}]
+      [{:fsm/event :t10} #{:k1 :e2}])))
+
+;(deftest send-data-send-1
+;  (let [fsm
+;        (make-fsm
+;          [:fsm
+;           {:on {:fsm/entry #(swap! %2 merge {:foo 1 :bar 2 :bat 3})}}
+;           [:state#a
+;            [:transition
+;             {:target :b
+;              :event :t
+;              :on (fn [config container$]
+;                    (js/setTimeout
+;                      (fn []
+;                        (let [c @container$]
+;                          (let [data {:foo (:foo c)
+;                                      :bar (:bar c)
+;                                      :bif (:bat c)
+;                                      :belt 4}]
+;                            (sm/raise! config {:event/type :s1 :data data}))))
+;                      10))}]]
+;           [:state#b
+;            [:transition
+;             {:event :s1
+;              :target :c
+;              :cond #(= (:data %1) {:foo 1 :bar 2 :bif 3 :belt 4})
+;              :on #(sm/raise! % {:event/type :s2 :data "More content."})}]
+;            [:transition {:event :s1 :target :f}]]
+;           [:state#c
+;            [:transition
+;             {:event :s2
+;              :target :d
+;              :cond #(= (:data %1) "More content.")
+;              :on #(sm/raise! % {:event/type :s3 :data "Hello world."})}]
+;            [:transition {:event :s2 :target :f}]]
+;           [:state#d
+;            [:transition
+;             {:event :s3
+;              :target :e
+;              :cond #(= (:data %1) "Hello world.")}]
+;            [:transition {:event :s3 :target :f}]]
+;           [:state#e]
+;           [:state#f]])]
+;    (async done
+;      (go
+;        (is (= #{:a} (select-active-atomic-states-ids (<! (sm/tick fsm)))))
+;        (is (= #{:b} (select-active-atomic-states-ids (<! (sm/trigger fsm {:event/type :t})))))
+;        (<! (timeout 100))
+;        (is (= #{:e} (select-active-atomic-states-ids (<! (sm/trigger fsm {:event/type :t2})))))
+;        (done)))))
+;
+;(deftest delayed-send-send-1
+;  (let [fsm
+;        (make-fsm
+;          [:fsm
+;           [:state#a
+;            [:transition {:target :b
+;                          :event :t1
+;                          :on (fn [config _ _]
+;                                (js/setTimeout
+;                                  #(sm/raise! config {:event/type :s})
+;                                  10))}]]
+;           [:state#b
+;            [:transition {:target :c :event :s}]]
+;           [:state#c
+;            [:transition {:target :d :event :t2}]]
+;           [:state#d]])]
+;    (async done
+;      (go
+;        (is (= #{:a} (select-active-atomic-states-ids (<! (sm/tick fsm)))))
+;        (is (= #{:b} (select-active-atomic-states-ids (<! (sm/trigger fsm {:event/type :t1})))))
+;        (<! (timeout 100))
+;        (is (= #{:d} (select-active-atomic-states-ids (<! (sm/trigger fsm {:event/type :t2})))))
+;        (done)))))
+;
+;(deftest delayed-send-send-2
+;  (let [fsm
+;        (make-fsm
+;          [:fsm
+;           [:state#a
+;            {:on {:fsm/exit (fn [config _]
+;                              (js/setTimeout
+;                                #(sm/raise! config {:event/type :s})
+;                                10))}}
+;            [:transition {:target :b :event :t1}]]
+;           [:state#b
+;            [:transition {:target :c :event :s}]]
+;           [:state#c
+;            [:transition {:target :d :event :t2}]]
+;           [:state#d]])]
+;    (async done
+;      (go
+;        (is (= #{:a} (select-active-atomic-states-ids (<! (sm/tick fsm)))))
+;        (is (= #{:b} (select-active-atomic-states-ids (<! (sm/trigger fsm {:event/type :t1})))))
+;        (<! (timeout 100))
+;        (is (= #{:d} (select-active-atomic-states-ids (<! (sm/trigger fsm {:event/type :t2})))))
+;        (done)))))
+;
+;(deftest delayed-send-send-3
+;  (let [fsm
+;        (make-fsm
+;          [:fsm
+;           [:state#a
+;            [:transition {:target :b :event :t1}]]
+;           [:state#b
+;            {:on {:fsm/entry (fn [config _]
+;                               (js/setTimeout
+;                                 #(sm/raise! config {:event/type :s})
+;                                 10))}}
+;            [:transition {:target :c :event :s}]]
+;           [:state#c
+;            [:transition {:target :d :event :t2}]]
+;           [:state#d]])]
+;    (async done
+;      (go
+;        (is (= #{:a} (select-active-atomic-states-ids (<! (sm/tick fsm)))))
+;        (is (= #{:b} (select-active-atomic-states-ids (<! (sm/trigger fsm {:event/type :t1})))))
+;        (<! (timeout 100))
+;        (is (= #{:d} (select-active-atomic-states-ids (<! (sm/trigger fsm {:event/type :t2})))))
+;        (done)))))
+
+(deftest action-send-send-1
+  (let [fsm
+        (make-fsm
+          [:fsm/root
+           [:fsm/state#a
+            [:fsm/transition
+             #:fsm.transition{:target :b
+                              :event :t
+                              :fsm/on (fn [fsm & _] (c/raise fsm {:fsm/event :s}))}]]
+           [:fsm/state#b
+            [:fsm/transition
+             #:fsm.transition{:target :c :event :s}]]
+           [:fsm/state#c]])]
+    (assert-states
+      fsm #{:a}
+      [{:fsm/event :t} #{:c}])))
+
+(deftest action-send-send-2
+  (let [fsm
+        (make-fsm
+          [:fsm/root
+           [:fsm/state#a
+            {:fsm.on/exit (fn [fsm & _] (c/raise fsm {:fsm/event :s}))}
+            [:fsm/transition #:fsm.transition{:target :b :event :t}]]
+           [:fsm/state#b
+            [:fsm/transition #:fsm.transition{:target :c :event :s}]]
+           [:fsm/state#c]])]
+    (assert-states
+      fsm #{:a}
+      [{:fsm/event :t} #{:c}])))
+
+(deftest action-send-send-3
+  (let [fsm
+        (make-fsm
+          [:fsm/root
+           [:fsm/state#a
+            [:fsm/transition #:fsm.transition{:target :b :event :t}]]
+           [:fsm/state#b
+            {:fsm.on/enter (fn [fsm & _] (c/raise fsm {:fsm/event :s}))}
+            [:fsm/transition #:fsm.transition{:target :c :event :s}]]
+           [:fsm/state#c]])]
+    (assert-states
+      fsm #{:a}
+      [{:fsm/event :t} #{:c}])))
+
+(deftest action-send-send-4
+  (let [fsm
+        (make-fsm
+          [:fsm/root
+           [:fsm/state#a
+            [:fsm/transition #:fsm.transition{:target :b :event :t}]]
+           [:fsm/state#b
+            {:fsm.on/enter (fn [fsm & _] (c/raise fsm {:fsm/event :s}))}
+            [:fsm/transition #:fsm.transition{:target :c :event :s}]
+            [:fsm/transition #:fsm.transition{:target :f1}]]
+           [:fsm/state#c
+            [:fsm/transition #:fsm.transition{:target :f2 :event :s}]
+            [:fsm/transition #:fsm.transition{:target :d}]]
+           [:fsm/state#f1]
+           [:fsm/state#d]
+           [:fsm/state#f2]])]
+    (assert-states
+      fsm #{:a}
+      [{:fsm/event :t} #{:f1}])))
+
+(deftest action-send-send-4b
+  (let [fsm
+        (make-fsm
+          [:fsm/root
+           [:fsm/state#a
+            [:fsm/transition #:fsm.transition{:target :b :event :t}]]
+           [:fsm/state#b
+            {:fsm.on/enter (fn [fsm & _] (c/raise fsm {:fsm/event :s}))}
+            [:fsm/transition #:fsm.transition{:target :c :event :s}]]
+           [:fsm/state#c]])]
+    (assert-states
+      fsm #{:a}
+      [{:fsm/event :t} #{:c}])))
+
+(deftest action-send-send-7
+  (let [fsm
+        (make-fsm
+          [:fsm/root
+           [:fsm/state#a
+            [:fsm/transition
+             #:fsm.transition{:target :b
+                              :event :t
+                              :fsm/on (fn [fsm & _] (c/raise fsm {:fsm/event :s}))}]]
+           [:fsm/state#b {:fsm/initial :b1}
+            [:fsm/state#b1
+             [:fsm/transition #:fsm.transition{:event :s :target :b2}]
+             [:fsm/transition #:fsm.transition{:target :b3}]]
+            [:fsm/state#b2]
+            [:fsm/state#b3]]])]
+    (assert-states
+      fsm #{:a}
+      [{:fsm/event :t} #{:b3}])))
+
+(deftest action-send-send-7b
+  (let [fsm
+        (make-fsm
+          [:fsm/root
+           [:fsm/state#a
+            [:fsm/transition
+             #:fsm.transition{:target :b
+                              :event :t
+                              :fsm/on (fn [fsm & _] (c/raise fsm {:fsm/event :s}))}]]
+           [:fsm/state#b {:fsm/initial :b1}
+            [:fsm/state#b1
+             [:fsm/transition #:fsm.transition{:event :s :target :b2}]]
+            [:fsm/state#b2]
+            [:fsm/state#b3]]])]
+    (assert-states
+      fsm #{:a}
+      [{:fsm/event :t} #{:b2}])))
+
+(deftest action-send-send-8
+  (let [fsm
+        (make-fsm
+          [:fsm/root
+           [:fsm/state#a
+            [:fsm/transition
+             #:fsm.transition{:target :b1
+                              :event :t
+                              :fsm/on (fn [fsm & _] (c/raise fsm {:fsm/event :s}))}]]
+           [:fsm/state#b {:fsm/initial :b1}
+            [:fsm/state#b1
+             [:fsm/transition #:fsm.transition{:event :s :target :b2}]
+             [:fsm/transition #:fsm.transition{:target :b3}]]
+            [:fsm/state#b2]
+            [:fsm/state#b3]]])]
+    (assert-states
+      fsm #{:a}
+      [{:fsm/event :t} #{:b3}])))
+
+(deftest action-send-send-8b
+  (let [fsm
+        (make-fsm
+          [:fsm/root
+           [:fsm/state#a
+            [:fsm/transition
+             #:fsm.transition{:target :b1
+                              :event :t
+                              :fsm/on (fn [fsm & _] (c/raise fsm {:fsm/event :s}))}]]
+           [:fsm/state#b {:fsm/initial :b1}
+            [:fsm/state#b1
+             [:fsm/transition #:fsm.transition{:event :s :target :b2}]]
+            [:fsm/state#b2]
+            [:fsm/state#b3]]])]
+    (assert-states
+      fsm #{:a}
+      [{:fsm/event :t} #{:b2}])))
+
+(deftest action-send-send-9
+  (let [fsm
+        (make-fsm
+          [:fsm/root
+           [:fsm/state#a
+            [:fsm/transition
+             #:fsm.transition{:target :b1
+                              :event :t
+                              :on (fn [fsm & _] (c/raise fsm {:fsm/event :s}))}]]
+           [:fsm/state#b {:fsm/initial :b1}
+            [:fsm/state#b1
+             [:fsm/transition #:fsm.transition{:event :s :target :b2}]
+             [:fsm/transition #:fsm.transition{:target :b3}]]
+            [:fsm/state#b2]
+            [:fsm/state#b3]]])]
+    (assert-states
+      fsm #{:a}
+      [{:fsm/event :t} #{:b3}])))
+
+(deftest targetless-transition-0
+  (let [fsm
+        (make-fsm
+          [:fsm/root
+           {:fsm.on/enter (fn [fsm & _] (c/assoc-in-data fsm :i 0))}
+           [:fsm/state#a
+            [:fsm/transition #:fsm.transition{:target :b :event :t}]]
+           [:fsm/state#b
+            [:fsm/transition #:fsm.transition{:target :done :cond (fn [fsm & _] (= 100 (c/get-in-data fsm :i)))}]
+            [:fsm/transition #:fsm.transition{:fsm/on (fn [fsm & _]
+                                                        (println "EE")
+                                                        (c/update-in-data fsm :i inc))}]]
+           [:fsm/state#done]])]
+    (assert-states
+      fsm #{:a}
+      [{:fsm/event :t} #{:done}])))
+
+(deftest targetless-transition-1
+  (let [fsm
+        (make-fsm
+          [:fsm/root
+           {:fsm.on/enter (fn [fsm & _] (c/assoc-in-data fsm :i 1))}
+           [:fsm/state#A
+            [:fsm/transition #:fsm.transition{:event :foo :fsm/on (fn [fsm & _] (c/update-in-data fsm :i * 2))}]
+            [:fsm/state#a
+             [:fsm/transition #:fsm.transition{:event :bar :fsm/on (fn [fsm & _] (c/update-in-data fsm :i #(Math/pow % 3)))}]]
+            [:fsm/transition #:fsm.transition{:target :done :cond (fn [fsm & _] (= 8.0 (c/get-in-data fsm :i)))}]]
+           [:fsm/state#done]])]
+    (assert-states
+      fsm #{:a}
+      [{:fsm/event :foo} #{:a}]
+      [{:fsm/event :bar} #{:done}])))
+
+(deftest targetless-transition-2
+  (let [fsm
+        (make-fsm
+          [:fsm/root
+           {:fsm.on/enter (fn [fsm & _] (c/assoc-in-data fsm :i 1))}
+           [:fsm/state#A
+            [:fsm/transition
+             #:fsm.transition{:event :foo :fsm/on (fn [fsm & _] (c/update-in-data fsm :i * 2))}]
+            [:fsm/transition
+             #:fsm.transition{:event :bar :fsm/on (fn [fsm & _] (c/update-in-data fsm :i #(Math/pow % 3)))}]
+            [:fsm/state#a
+             [:fsm/transition
+              #:fsm.transition{:event :foo :fsm/on (fn [fsm & _] (c/update-in-data fsm :i + 2))}]]
+            [:fsm/transition
+             #:fsm.transition{:target :done :cond (fn [fsm & _] (= 27.0 (c/get-in-data fsm :i)))}]]
+           [:fsm/state#done]])]
+    (assert-states
+      fsm #{:a}
+      [{:fsm/event :foo} #{:a}]
+      [{:fsm/event :bar} #{:done}])))
+
+(deftest targetless-transition-3
+  (let [fsm
+        (make-fsm
+          [:fsm/root
+           {:fsm.on/enter (fn [fsm & _] (c/assoc-in-data fsm :i 1))}
+           [:fsm/parallel#p
+            [:fsm/transition
+             #:fsm.transition{:target :done
+                              :cond (fn [fsm & _] (= 100.0 (c/get-in-data fsm :i)))}]
+            [:fsm/transition
+             #:fsm.transition{:event :bar
+                              :fsm/on (fn [fsm & _] (c/update-in-data fsm :i * 20))}]
+            [:fsm/state#a
+             [:fsm/state#a1
+              [:fsm/transition
+               #:fsm.transition{:event :foo
+                                :target :a2
+                                :fsm/on (fn [fsm & _] (c/update-in-data fsm :i * 2))}]]
+             [:fsm/state#a2]]
+            [:fsm/state#b
+             [:fsm/state#b1
+              [:fsm/transition
+               #:fsm.transition{:event :foo
+                                :target :b2
+                                :fsm/on (fn [fsm & _] (c/update-in-data fsm :i #(Math/pow % 3)))}]]
+             [:fsm/state#b2]]
+            [:fsm/state#c
+             [:fsm/transition
+              #:fsm.transition{:event :foo
+                               :fsm/on (fn [fsm & _] (c/update-in-data fsm :i - 3))}]]]
+           [:fsm/state#done]])]
+    (assert-states
+      fsm #{:a1 :b1 :c}
+      [{:fsm/event :foo} #{:a2 :b2 :c}]
+      [{:fsm/event :bar} #{:done}])))

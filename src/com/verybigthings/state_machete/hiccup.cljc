@@ -195,15 +195,15 @@
                                   [[:* "." [:+ :any]]
                                    :end])
                               regal/regex)]
-                {:length (count e-parts) :matcher #(re-matches regex %)}))))
+                {:length (count e-parts) :matcher #(and % (re-matches regex %))}))))
         (sort-by :length)
         (map :matcher)))))
 
 (defn make-transition-guard [guards]
-  (fn [fsm event]
+  (fn [& args]
     (reduce
       (fn [acc guard]
-        (if (guard fsm event)
+        (if (apply guard args)
           acc
           (reduced false)))
       true
@@ -229,13 +229,20 @@
                 guard))))
         make-transition-guard))))
 
+(defn process-transition-type [transition-type is-targetless]
+  (if is-targetless
+    :internal
+    (or transition-type :external)))
+
 (defn process-transition [attrs context]
-  (-> attrs
-    (update :fsm.transition/event process-transition-event)
-    (update :fsm.transition/target #(when % (keyword-or-coll->set %)))
-    (update :fsm.transition/type #(or % :external))
-    (update :fsm.transition/cond process-transition-cond context)
-    (update :fsm/on process-handler context)))
+  (let [is-targetless (nil? (:fsm.transition/target attrs))]
+    (-> attrs
+      (update :fsm.transition/event process-transition-event)
+      (update :fsm.transition/target #(when % (keyword-or-coll->set %)))
+      (update :fsm.transition/type #(or % :external)                         ;;process-transition-type is-targetless
+        )
+      (update :fsm.transition/cond process-transition-cond context)
+      (update :fsm/on process-handler context))))
 
 (defn process-state-handlers [attrs context]
   (-> attrs
