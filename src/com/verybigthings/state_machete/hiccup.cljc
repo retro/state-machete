@@ -287,7 +287,8 @@
       (assoc :fsm.state/type :compound
              :fsm/initial (get-initial-child-state-id attrs child-states))
 
-      (and (= :fsm/state node-name) (not (seq child-states)))
+      (or (and (= :fsm/state node-name) (not (seq child-states)))
+        (= :fsm/final node-name))
       (assoc :fsm.state/type :atomic)
 
       (and (= :fsm/transition node-name))

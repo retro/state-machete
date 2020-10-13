@@ -76,7 +76,8 @@
       (map #(get-in fsm [:fsm/index :by-path % :fsm/id]))
       seq)))
 
-(def select-transition-states-for-targetless-transition select-transition-states-to-exit)
+(defn select-transition-states-for-targetless-transition [fsm transition-with-domain]
+  (reverse (select-transition-states-to-exit fsm transition-with-domain)))
 
 (defn select-transition-states-to-enter [fsm {:keys [transition domain]}]
   (let [domain-id        (:fsm/id domain)
@@ -179,9 +180,9 @@
                              transitions)]
     (reduce
       (fn [acc t]
-        (let [paths (map #(get-in % [:domain :fsm/path]) acc)
-              path  (get-in t [:domain :fsm/path])
-              is-targetless (nil? (get-in t [:transition :fsm.transition/target]))
+        (let [paths              (map #(get-in % [:domain :fsm/path]) acc)
+              path               (get-in t [:domain :fsm/path])
+              is-targetless      (nil? (get-in t [:transition :fsm.transition/target]))
               is-without-overlap (not (some #(paths-overlap? % path) paths))]
           (if (or is-targetless is-without-overlap)
             (conj acc t)
@@ -189,27 +190,67 @@
       []
       sorted-transitions)))
 
+(defn get-final-state-done-event-for-parallel-state [fsm state-id]
+  (let [parent-state-id (get-in fsm [:fsm/index :by-id state-id :fsm/parent-state :fsm/id])
+        parent-state (get-in fsm [:fsm/index :by-id parent-state-id])
+        parent-state-path (:fsm/path parent-state)
+        parent-state-path-count (count parent-state-path)]
+
+    (when (= :fsm/parallel (:fsm/type parent-state))
+      (let [active-states (get-active-states fsm)
+            active-final-grandchildren (filter
+                                         (fn [state-id]
+                                           (let [state (get-in fsm [:fsm/index :by-id state-id])
+                                                 path (:fsm/path state)]
+                                             (and (= :fsm/final (:fsm/type state))
+                                               (= (+ 2 parent-state-path-count) (count path))
+                                               (= parent-state-path (subvec path 0 parent-state-path-count)))))
+                                         active-states)]
+        (when (= (count active-final-grandchildren)
+                (count (:fsm.children/states parent-state)))
+          {:event {:fsm/event (keyword (str "done.state." (name parent-state-id)))}})))))
+
+(defn get-final-state-done-events [fsm state]
+  (when (= :fsm/final (:fsm/type state))
+    (let [parent-state-id                (get-in state [:fsm/parent-state :fsm/id])
+          parent-state                   (get-in fsm [:fsm/index :by-id parent-state-id])
+          event                          {:event {:fsm/event (keyword (str "done.state." (name parent-state-id)))}}
+          event-for-parallel-grandparent (when (= :fsm/state (:fsm/type parent-state))
+                                           (get-final-state-done-event-for-parallel-state fsm parent-state-id))]
+      (if (and event event-for-parallel-grandparent)
+        [event event-for-parallel-grandparent]
+        [event]))))
+
 (defn enter-states [fsm to-enter]
   (println "TO ENTER" to-enter)
   (reduce
     (fn [acc state-id]
-      (let [state                (get-in acc [:fsm/index :by-id state-id])
+      (println "ENTERING:" state-id)
+      (let [state                   (get-in acc [:fsm/index :by-id state-id])
             ;; State can be active if we're entering as a result of an targetless transition
-            ;; in this case, we don't wan't to re-run the fsm.on/enter handler
-            is-state-active      (contains? (get-in fsm [:fsm/state :active]) state-id)
-            enter-handler        (if is-state-active identity (:fsm.on/enter state))
-            pre-inbound          (get-in fsm [:fsm/session :inbound])
-            fsm'                 (-> acc
-                                   (assoc-in [:fsm/state :active state-id] (= :atomic (:fsm.state/type state)))
-                                   (assoc-in [:fsm/session :inbound] [])
-                                   enter-handler)
-            post-inbound         (get-in fsm' [:fsm/session :inbound])
-            nil-event-transition (get-nil-event-transition fsm' state-id)
-            final-inbound        (vec (concat
-                                        pre-inbound
-                                        (when nil-event-transition [{:transition nil-event-transition}])
-                                        post-inbound))]
-        (assoc-in fsm' [:fsm/session :inbound] final-inbound)))
+            ;; in this case, we don't want to re-run the fsm.on/enter handler
+            is-state-active         (contains? (get-in acc [:fsm/state :active]) state-id)
+            enter-handler           (if is-state-active identity (:fsm.on/enter state))
+            pre-inbound             (get-in acc [:fsm/session :inbound])
+            fsm'                    (-> acc
+                                      (assoc-in [:fsm/state :active state-id] (= :atomic (:fsm.state/type state)))
+                                      (assoc-in [:fsm/session :inbound] [])
+                                      enter-handler)]
+        (if (and (= :fsm/final (:fsm/type state)) (= [] (get-in state [:fsm/parent-state :fsm/path])))
+          (-> fsm'
+            (assoc-in [:fsm/session :inbound] [])
+            (assoc-in [:fsm/state :is-terminated] true))
+          (let [post-inbound            (get-in fsm' [:fsm/session :inbound])
+                nil-event-transition    (get-nil-event-transition fsm' state-id)
+                final-state-done-events (when-not is-state-active (get-final-state-done-events fsm' state))
+                final-inbound           (vec (concat
+                                               pre-inbound
+                                               (when nil-event-transition [{:transition nil-event-transition}])
+                                               post-inbound
+                                               final-state-done-events))]
+            (assoc-in fsm' [:fsm/session :inbound] final-inbound)))
+
+        ))
     fsm
     to-enter))
 
