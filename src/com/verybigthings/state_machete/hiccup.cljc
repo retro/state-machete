@@ -79,7 +79,8 @@
   (s/cat
     :name (make-valid-node-name? :fsm/history)
     :params (s/? ::history-params)
-    :body (s/? ::transition-node)))
+    :body (s/? (s/or :transition ::transition-node))
+    ))
 
 (>def ::history-params
   (s/and
@@ -161,7 +162,7 @@
       (do
         (assert (contains? (set child-state-ids) initial-id) (str "Child state with id:" initial-id " doesn't exist"))
         initial-id)
-      (first child-state-ids))))
+      (first (remove #(= :fsm/final (:fsm/type %)) child-state-ids)))))
 
 (defn default-handler [fsm & _] fsm)
 
@@ -229,25 +230,22 @@
                 guard))))
         make-transition-guard))))
 
-(defn process-transition-type [transition-type is-targetless]
-  (if is-targetless
-    :internal
-    (or transition-type :external)))
-
 (defn process-transition [attrs context]
-  (let [is-targetless (nil? (:fsm.transition/target attrs))]
-    (-> attrs
-      (update :fsm.transition/event process-transition-event)
-      (update :fsm.transition/target #(when % (keyword-or-coll->set %)))
-      (update :fsm.transition/type #(or % :external)                         ;;process-transition-type is-targetless
-        )
-      (update :fsm.transition/cond process-transition-cond context)
-      (update :fsm/on process-handler context))))
+  (-> attrs
+    (update :fsm.transition/event process-transition-event)
+    (update :fsm.transition/target #(when % (keyword-or-coll->set %)))
+    (update :fsm.transition/type #(or % :external))
+    (update :fsm.transition/cond process-transition-cond context)
+    (update :fsm/on process-handler context)))
 
 (defn process-state-handlers [attrs context]
   (-> attrs
     (update :fsm.on/enter process-handler context)
     (update :fsm.on/exit process-handler context)))
+
+
+(defn process-history-type [attrs]
+  (update attrs :fsm.history/type #(or % :shallow)))
 
 (defn expand-partials [child-nodes]
   (mapcat
@@ -273,7 +271,8 @@
                                            (expand-node (update-in child-context [:fsm/cursor :path] conj idx) s)))
                             vec)
         child-states      (filterv #(contains? state-nodes (:fsm/type %)) child-nodes)
-        child-transitions (filterv #(= :fsm/transition (:fsm/type %)) child-nodes)]
+        child-transitions (filterv #(= :fsm/transition (:fsm/type %)) child-nodes)
+        history-states    (filterv #(= :fsm/history (:fsm/type %)) child-states)]
 
     (cond->
       (merge
@@ -291,6 +290,9 @@
         (= :fsm/final node-name))
       (assoc :fsm.state/type :atomic)
 
+      (= :fsm/history node-name)
+      process-history-type
+
       (and (= :fsm/transition node-name))
       (process-transition context)
 
@@ -302,6 +304,9 @@
 
       (seq child-states)
       (assoc :fsm.children/states child-states)
+
+      (seq history-states)
+      (assoc :fsm.children.states/history history-states)
 
       (seq child-transitions)
       (assoc :fsm.children/transitions child-transitions))))

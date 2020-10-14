@@ -1988,3 +1988,279 @@
           {}
           {:var1 0})]
     (assert-states fsm #{:pass})))
+
+(deftest history-0
+  (let [fsm
+        (make-fsm
+          [:fsm/root
+           [:fsm/state#a
+            [:fsm/transition #:fsm.transition{:target :h :event :t1}]]
+           [:fsm/state#b
+            [:fsm/history#h
+             [:fsm/transition #:fsm.transition{:target :b2}]]
+            [:fsm/state#b1]
+            [:fsm/state#b2
+             [:fsm/transition #:fsm.transition{:event :t2 :target :b3}]]
+            [:fsm/state#b3
+             [:fsm/transition #:fsm.transition{:event :t3 :target :a}]]]])]
+    (assert-states
+      fsm #{:a}
+      [{:fsm/event :t1} #{:b2}]
+      [{:fsm/event :t2} #{:b3}]
+      [{:fsm/event :t3} #{:a}]
+      [{:fsm/event :t1} #{:b3}])))
+
+(deftest history-1
+  (let [fsm
+        (make-fsm
+          [:fsm/root
+           [:fsm/state#a
+            [:fsm/transition #:fsm.transition{:target :h :event :t1}]]
+           [:fsm/state#b {:fsm/initial :h}
+            [:fsm/history#h {:fsm.history/type :deep}
+             [:fsm/transition #:fsm.transition{:target :b1_2}]]
+            [:fsm/state#b1 {:fsm/initial :b1_1}
+             [:fsm/state#b1_1]
+             [:fsm/state#b1_2
+              [:fsm/transition #:fsm.transition{:event :t2 :target :b1_3}]]
+             [:fsm/state#b1_3
+              [:fsm/transition #:fsm.transition{:event :t3 :target :a}]]]]])]
+    (assert-states
+      fsm #{:a}
+      [{:fsm/event :t1} #{:b1_2}]
+      [{:fsm/event :t2} #{:b1_3}]
+      [{:fsm/event :t3} #{:a}]
+      [{:fsm/event :t1} #{:b1_3}])))
+
+(deftest history-2
+  (let [fsm
+        (make-fsm
+          [:fsm/root
+           [:fsm/state#a
+            [:fsm/transition #:fsm.transition{:target :h :event :t1}]]
+           [:fsm/state#b {:fsm/initial :h}
+            [:fsm/history#h
+             [:fsm/transition #:fsm.transition{:target :b1_2}]]
+            [:fsm/state#b1 {:fsm/initial :b1_1}
+             [:fsm/state#b1_1]
+             [:fsm/state#b1_2
+              [:fsm/transition #:fsm.transition{:event :t2 :target :b1_3}]]
+             [:fsm/state#b1_3
+              [:fsm/transition #:fsm.transition{:event :t3 :target :a}]]]]])]
+    (assert-states
+      fsm #{:a}
+      [{:fsm/event :t1} #{:b1_2}]
+      [{:fsm/event :t2} #{:b1_3}]
+      [{:fsm/event :t3} #{:a}]
+      [{:fsm/event :t1} #{:b1_1}])))
+
+(deftest history-3
+  (let [fsm
+        (make-fsm
+          [:fsm/root
+           [:fsm/state#a
+            [:fsm/transition #:fsm.transition{:target :p :event :t1}]
+            [:fsm/transition #:fsm.transition{:target :h :event :t4}]]
+           [:fsm/parallel#p
+            [:fsm/history#h {:fsm.history/type :deep}
+             [:fsm/transition #:fsm.transition{:target :b}]]
+            [:fsm/state#b {:fsm/initial :b1}
+             [:fsm/state#b1
+              [:fsm/transition #:fsm.transition{:target :b2 :event :t2}]]
+             [:fsm/state#b2]]
+            [:fsm/state#c {:fsm/initial :c1}
+             [:fsm/state#c1
+              [:fsm/transition #:fsm.transition{:target :c2 :event :t2}]]
+             [:fsm/state#c2]]
+            [:fsm/transition #:fsm.transition{:target :a :event :t3}]]])]
+    (assert-states
+      fsm #{:a}
+      [{:fsm/event :t1} #{:b1 :c1}]
+      [{:fsm/event :t2} #{:b2 :c2}]
+      [{:fsm/event :t3} #{:a}]
+      [{:fsm/event :t4} #{:b2 :c2}])))
+
+(deftest history-4
+  (let [fsm
+        (make-fsm
+          [:fsm/root
+           [:fsm/state#a
+            [:fsm/transition #:fsm.transition{:target :p :event :t1}]
+            [:fsm/transition #:fsm.transition{:target :p :event :t6}]
+            [:fsm/transition #:fsm.transition{:target :hp :event :t9}]]
+
+           [:fsm/parallel#p
+            [:fsm/history#hp {:fsm.history/type :deep}
+             [:fsm/transition #:fsm.transition{:target :b1}]]
+
+            [:fsm/state#b {:fsm/initial :hb}
+             [:fsm/history#hb {:fsm.history/type :deep}
+              [:fsm/transition #:fsm.transition{:target :b1}]]
+
+             [:fsm/state#b1 {:fsm/initial :b1_1}
+              [:fsm/state#b1_1
+               [:fsm/transition #:fsm.transition{:target :b1_2 :event :t2}]]
+              [:fsm/state#b1_2
+               [:fsm/transition #:fsm.transition{:target :b2 :event :t3}]]]
+
+             [:fsm/state#b2 {:fsm/initial :b2_1}
+              [:fsm/state#b2_1
+               [:fsm/transition #:fsm.transition{:target :b2_2 :event :t4}]]
+              [:fsm/state#b2_2
+               [:fsm/transition #:fsm.transition{:target :a :event :t5}]
+               [:fsm/transition #:fsm.transition{:target :a :event :t8}]]]]
+
+            [:fsm/state#c {:fsm/initial :hc}
+             [:fsm/history#hc {:fsm.history/type :shallow}
+              [:fsm/transition #:fsm.transition{:target :c1}]]
+
+             [:fsm/state#c1 {:fsm/initial :c1_1}
+              [:fsm/state#c1_1
+               [:fsm/transition #:fsm.transition{:target :c1_2 :event :t2}]]
+
+              [:fsm/state#c1_2
+               [:fsm/transition #:fsm.transition{:target :c2 :event :t3}]]]
+
+             [:fsm/state#c2 {:fsm/initial :c2_1}
+              [:fsm/state#c2_1
+               [:fsm/transition #:fsm.transition{:target :c2_2 :event :t4}]
+               [:fsm/transition #:fsm.transition{:target :c2_2 :event :t7}]]
+
+              [:fsm/state#c2_2]]]]])]
+    (assert-states
+      fsm #{:a}
+      [{:fsm/event :t1} #{:b1_1 :c1_1}]
+      [{:fsm/event :t2} #{:b1_2 :c1_2}]
+      [{:fsm/event :t3} #{:b2_1 :c2_1}]
+      [{:fsm/event :t4} #{:b2_2 :c2_2}]
+      [{:fsm/event :t5} #{:a}]
+      [{:fsm/event :t6} #{:b2_2 :c2_1}]
+      [{:fsm/event :t7} #{:b2_2 :c2_2}]
+      [{:fsm/event :t8} #{:a}]
+      [{:fsm/event :t9} #{:b2_2 :c2_2}])))
+
+(deftest history-4b
+  (let [fsm
+        (make-fsm
+          [:fsm/root
+           [:fsm/state#a
+            [:fsm/transition #:fsm.transition{:target :p :event :t1}]
+            [:fsm/transition #:fsm.transition{:target #{:hb :hc} :event :t6}]
+            [:fsm/transition #:fsm.transition{:target :hp :event :t9}]]
+
+           [:fsm/parallel#p
+            [:fsm/history#hp {:fsm.history/type :deep}
+             [:fsm/transition #:fsm.transition{:target :b1}]]
+
+            [:fsm/state#b {:fsm/initial :hb}
+             [:fsm/history#hb {:fsm.history/type :deep}
+              [:fsm/transition #:fsm.transition{:target :b1}]]
+
+             [:fsm/state#b1 {:fsm/initial :b1_1}
+              [:fsm/state#b1_1
+               [:fsm/transition #:fsm.transition{:target :b1_2 :event :t2}]]
+              [:fsm/state#b1_2
+               [:fsm/transition #:fsm.transition{:target :b2 :event :t3}]]]
+
+             [:fsm/state#b2 {:fsm/initial :b2_1}
+              [:fsm/state#b2_1
+               [:fsm/transition #:fsm.transition{:target :b2_2 :event :t4}]]
+              [:fsm/state#b2_2
+               [:fsm/transition #:fsm.transition{:target :a :event :t5}]
+               [:fsm/transition #:fsm.transition{:target :a :event :t8}]]]]
+
+            [:fsm/state#c {:fsm/initial :hc}
+             [:fsm/history#hc {:fsm.history/type :shallow}
+              [:fsm/transition #:fsm.transition{:target :c1}]]
+
+             [:fsm/state#c1 {:fsm/initial :c1_1}
+              [:fsm/state#c1_1
+               [:fsm/transition #:fsm.transition{:target :c1_2 :event :t2}]]
+
+              [:fsm/state#c1_2
+               [:fsm/transition #:fsm.transition{:target :c2 :event :t3}]]]
+
+             [:fsm/state#c2 {:fsm/initial :c2_1}
+              [:fsm/state#c2_1
+               [:fsm/transition #:fsm.transition{:target :c2_2 :event :t4}]
+               [:fsm/transition #:fsm.transition{:target :c2_2 :event :t7}]]
+
+              [:fsm/state#c2_2]]]]])]
+    (assert-states
+      fsm #{:a}
+      [{:fsm/event :t1} #{:b1_1 :c1_1}]
+      [{:fsm/event :t2} #{:b1_2 :c1_2}]
+      [{:fsm/event :t3} #{:b2_1 :c2_1}]
+      [{:fsm/event :t4} #{:b2_2 :c2_2}]
+      [{:fsm/event :t5} #{:a}]
+      [{:fsm/event :t6} #{:b2_2 :c2_1}]
+      [{:fsm/event :t7} #{:b2_2 :c2_2}]
+      [{:fsm/event :t8} #{:a}]
+      [{:fsm/event :t9} #{:b2_2 :c2_2}])))
+
+(deftest history-5
+  (let [fsm
+        (make-fsm
+          [:fsm/root
+           [:fsm/parallel#p
+            [:fsm/history#ha {:fsm.history/type :deep}
+             [:fsm/transition #:fsm.transition{:target :b}]]
+            [:fsm/parallel#b
+             [:fsm/parallel#c
+              [:fsm/parallel#d
+               [:fsm/parallel#e
+                [:fsm/state#i
+                 [:fsm/state#i1
+                  [:fsm/transition #:fsm.transition{:target :i2 :event :t1}]]
+                 [:fsm/state#i2
+                  [:fsm/transition #:fsm.transition{:target :l :event :t2}]]]
+                [:fsm/state#j]]
+               [:fsm/state#h]]
+              [:fsm/state#g]]
+             [:fsm/state#f
+              [:fsm/state#f1
+               [:fsm/transition #:fsm.transition{:target :f2 :event :t1}]]
+              [:fsm/state#f2]]]
+            [:fsm/state#k]]
+           [:fsm/state#l
+            [:fsm/transition #:fsm.transition{:target :ha :event :t3}]]])]
+    (assert-states
+      fsm #{:i1 :j :h :g :f1 :k}
+      [{:fsm/event :t1} #{:i2 :j :h :g :f2 :k}]
+      [{:fsm/event :t2} #{:l}]
+      [{:fsm/event :t3} #{:i2 :j :h :g :f2 :k}])))
+
+(deftest history-6
+  (let [fsm
+        (make-fsm
+          [:fsm/root
+           [:fsm/state#a
+            [:fsm/transition #:fsm.transition{:target :h :event :t1}]]
+           [:fsm/state#b
+            {:fsm.on/enter (fn [fsm & _] (c/update-in-data fsm :x * 3))}
+            [:fsm/history#h
+             [:fsm/transition #:fsm.transition{:target :b2}]]
+            [:fsm/state#b1]
+            [:fsm/state#b2
+             {:fsm.on/enter (fn [fsm & _] (c/update-in-data fsm :x * 5))}
+             [:fsm/transition #:fsm.transition{:target :b3 :event :t2}]]
+            [:fsm/state#b3
+             {:fsm.on/enter (fn [fsm & _] (c/update-in-data fsm :x * 7))}
+             [:fsm/transition #:fsm.transition{:target :a :event :t3}]]
+
+            [:fsm/transition #:fsm.transition{:target :success
+                                              :event :t4
+                                              :cond (fn [fsm & _] (= 4410 (c/get-in-data fsm :x)))}]
+            [:fsm/transition #:fsm.transition{:target :fail
+                                              :event :t4}]]
+           [:fsm/state#success]
+           [:fsm/state#fail]]
+          {}
+          {:x 2})]
+    (assert-states
+      fsm #{:a}
+      [{:fsm/event :t1} #{:b2}]
+      [{:fsm/event :t2} #{:b3}]
+      [{:fsm/event :t3} #{:a}]
+      [{:fsm/event :t1} #{:b3}]
+      [{:fsm/event :t4} #{:success}])))

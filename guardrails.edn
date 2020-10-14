@@ -1,1 +1,1 @@
-{:throw? true}
+{:throw? true :emit-spec? true}
