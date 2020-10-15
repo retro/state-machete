@@ -4,5 +4,5 @@
   :license {:name "MIT License"
             :url "https://opensource.org/licenses/MIT"}
   :source-paths ["src"]
-  :dependencies [lambdaisland/regal {:mvn/version "0.0.89"}
+  :dependencies [[lambdaisland/regal "0.0.89"]
                  [com.fulcrologic/guardrails "0.0.12"]])
