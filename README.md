@@ -1,4 +1,6 @@
-# state-machete
+# com.verybigthings/state-machete
+
+[![Clojars Project](https://img.shields.io/clojars/v/com.verybigthings/state-machete.svg)](https://clojars.org/com.verybigthings/state-machete)
 
 Functional statecharts implementation for Clojure and ClojureScript.
 
