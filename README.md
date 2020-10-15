@@ -1,18 +1,13 @@
 # state-machete
 
-FIXME: my new library.
+Functional statecharts implementation for Clojure and ClojureScript.
 
-## Usage
+Documentation is missing at the moment, but there is a very extensive test suite that can be consulted.
 
-FIXME: write usage documentation!
-
-Build a deployable jar of this library:
-
-    $ clojure -A:jar
+Implementation is based on the SCXML standard, and test suite is ported from the [SCION](https://gitlab.com/scion-scxml) project.
 
 ## License
 
-Copyright © 2020 Retro
+Copyright © 2020 Mihael Konjevic (konjevic@gmail.com)
 
-Distributed under the Eclipse Public License either version 1.0 or (at
-your option) any later version.
+Distributed under the MIT License. 
