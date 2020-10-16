@@ -1940,6 +1940,26 @@
           {:var1 1})]
     (assert-states fsm #{:pass})))
 
+(deftest w3c-ecma-372b
+  (let [fsm
+        (make-fsm
+          [:fsm/root
+           ;; :done.state.some.namespace/s0
+           [:fsm/state {:fsm/initial :s0final :fsm/id :some.namespace/s0}
+            [:fsm/transition #:fsm.transition{:event :done.state.some.namespace/s0
+                                              :target :pass
+                                              :cond (fn [fsm & _] (= 2 (c/get-in-data fsm :var1)))}]
+            [:fsm/transition #:fsm.transition{:event :*
+                                              :target :fail}]
+            [:fsm/final#s0final
+             {:fsm.on/enter (fn [fsm & _] (c/assoc-in-data fsm :var1 2))
+              :fsm.on/exit (fn [fsm & _] (c/assoc-in-data fsm :var1 3))}]]
+           [:fsm/final#pass]
+           [:fsm/final#fail]]
+          {}
+          {:var1 1})]
+    (assert-states fsm #{:pass})))
+
 (deftest w3c-ecma-570
   (let [fsm
         (make-fsm
@@ -1954,6 +1974,38 @@
             [:fsm/transition #:fsm.transition{:event :done.state.p0s2
                                               :target :s1}]
             [:fsm/state#p0s1 {:fsm.initial :p0s11}
+             [:fsm/state#p0s11
+              [:fsm/transition #:fsm.transition{:event :e1 :target :p0s1final}]]
+             [:fsm/final#p0s1final]]
+
+            [:fsm/state#p0s2 {:fsm.initial :p0s21}
+             [:fsm/state#p0s21
+              [:fsm/transition #:fsm.transition{:event :e2 :target :p0s2final}]]
+             [:fsm/final#p0s2final]]]
+           [:fsm/state#s1
+            [:fsm/transition #:fsm.transition{:event :done.state.p0
+                                              :cond (fn [fsm & _] (= 1 (c/get-in-data fsm :var1)))
+                                              :target :pass}]]
+           [:fsm/final#pass]
+           [:fsm/final#fail]]
+          {}
+          {:var1 0})]
+    (assert-states fsm #{:pass})))
+
+(deftest w3c-ecma-570b
+  (let [fsm
+        (make-fsm
+          [:fsm/root
+           [:fsm/parallel#p0
+            {:fsm.on/enter (fn [fsm & _]
+                             (-> fsm
+                               (c/raise {:fsm/event :e1})
+                               (c/raise {:fsm/event :e2})))}
+            [:fsm/transition #:fsm.transition{:event :done.state.some.namespace/p0s1
+                                              :fsm/on (fn [fsm & _] (c/assoc-in-data fsm :var1 1))}]
+            [:fsm/transition #:fsm.transition{:event :done.state.p0s2
+                                              :target :s1}]
+            [:fsm/state {:fsm.initial :p0s11 :fsm/id :some.namespace/p0s1}
              [:fsm/state#p0s11
               [:fsm/transition #:fsm.transition{:event :e1 :target :p0s1final}]]
              [:fsm/final#p0s1final]]
@@ -2249,8 +2301,7 @@
       [{:fsm/event :t4} #{:success}])))
 
 (deftest event-is-passed-to-handlers
-  (let [fsm
-             (make-fsm
+  (let [fsm  (make-fsm
                [:fsm/root
                 [:fsm/state#a
                  {:fsm.on/exit (fn [fsm ev]
@@ -2274,8 +2325,7 @@
     (is (= [[:exit :a] :transition [:enter :b]] (get-in fsm' [:fsm/data :handler-calls])))))
 
 (deftest sending-data
-  (let [fsm
-             (make-fsm
+  (let [fsm  (make-fsm
                [:fsm/root
                 [:fsm/state#a
                  {:fsm.on/exit (fn [fsm & _]

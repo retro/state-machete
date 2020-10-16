@@ -1,5 +1,5 @@
 (ns com.verybigthings.state-machete.core
-  (:refer-clojure :exclude [compile])
+  (:refer-clojure :exclude [compile send])
   (:require [com.verybigthings.state-machete.hiccup :as hiccup]
             [com.verybigthings.state-machete.util :refer [lexicographic-compare keyword-or-coll->set first-identity]]
             [clojure.set :as set]))
@@ -256,6 +256,14 @@
   (let [domain (get-transition-domain fsm transition)]
     [{:transition transition :domain domain}]))
 
+(defn get-final-event-name [state-id]
+  (let [state-id-name (name state-id)
+        state-id-ns   (namespace state-id)
+        event-name           (if state-id-ns
+                               (str "done.state." state-id-ns "/" state-id-name)
+                               (str "done.state." state-id-name))]
+    (keyword event-name)))
+
 (defn get-final-state-done-event-for-parallel-state [fsm state-id]
   (let [parent-state-id         (get-in fsm [:fsm/index :by-id state-id :fsm/parent-state :fsm/id])
         parent-state            (get-in fsm [:fsm/index :by-id parent-state-id])
@@ -274,7 +282,8 @@
                                          active-states)]
         (when (= (count active-final-grandchildren)
                 (count (:fsm.children/states parent-state)))
-          {:event {:fsm/event (keyword (str "done.state." (name parent-state-id)))}})))))
+
+          {:event {:fsm/event (get-final-event-name parent-state-id) }})))))
 
 (defn state-active? [fsm state]
   (let [state-id (:fsm/id state)]
@@ -284,7 +293,7 @@
   (when (= :fsm/final (:fsm/type state))
     (let [parent-state-id                (get-in state [:fsm/parent-state :fsm/id])
           parent-state                   (get-in fsm [:fsm/index :by-id parent-state-id])
-          event                          {:event {:fsm/event (keyword (str "done.state." (name parent-state-id)))}}
+          event                          {:event {:fsm/event (get-final-event-name parent-state-id)}}
           event-for-parallel-grandparent (when (= :fsm/state (:fsm/type parent-state))
                                            (get-final-state-done-event-for-parallel-state fsm parent-state-id))]
       (if (and event event-for-parallel-grandparent)
@@ -430,6 +439,7 @@
             transitions-with-domain (if (nil? event)
                                       (get-nil-event-transitions-with-domain fsm transition)
                                       (get-event-transitions-with-domain fsm event))]
+        (println "EVENT" event)
         (-> fsm
           (update-in [:fsm/session :inbound] #(vec (rest %)))
           (assoc-in [:fsm/state :time] system-time)
