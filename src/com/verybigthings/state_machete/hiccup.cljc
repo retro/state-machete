@@ -119,6 +119,11 @@
     :params (s/? ::state-params)
     :body (s/* ::node)))
 
+(>def ::partial-node
+  (s/cat
+    :name #(= :<> %)
+    :body (s/* ::node)))
+
 (>def ::state-params
   (s/and
     map?))
@@ -139,7 +144,8 @@
     :history ::history-node
     :final ::final-node
     :state ::state-node
-    :parallel ::parallel-node))
+    :parallel ::parallel-node
+    :partial ::partial-node))
 
 (>def ::expanded-node
   map?)
@@ -250,7 +256,7 @@
   (mapcat
     (fn [node]
       (if (= :<> (first node))
-        (rest node)
+        (expand-partials (rest node))
         [node]))
     child-nodes))
 

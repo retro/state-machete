@@ -44,6 +44,19 @@
       fsm #{:a}
       [{:fsm/event :t} #{:b}])))
 
+(deftest basic-1b-with-partials
+  (let [fsm
+        (make-fsm
+          [:fsm/root
+           [:<>
+            [:fsm/state {:fsm/id :a}
+             [:<>
+              [:<> [:fsm/transition {:fsm.transition/target :b :fsm.transition/event :t}]]]]
+            [:fsm/state {:fsm/id :b}]]])]
+    (assert-states
+      fsm #{:a}
+      [{:fsm/event :t} #{:b}])))
+
 (deftest basic-2
   (let [fsm
         (make-fsm
