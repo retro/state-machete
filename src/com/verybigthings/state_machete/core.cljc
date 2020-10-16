@@ -439,7 +439,7 @@
             transitions-with-domain (if (nil? event)
                                       (get-nil-event-transitions-with-domain fsm transition)
                                       (get-event-transitions-with-domain fsm event))]
-        (println "EVENT" event)
+        ;;(println "EVENT" event)
         (-> fsm
           (update-in [:fsm/session :inbound] #(vec (rest %)))
           (assoc-in [:fsm/state :time] system-time)

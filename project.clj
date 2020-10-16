@@ -1,4 +1,4 @@
-(defproject com.verybigthings/state-machete "0.0.1-alpha2"
+(defproject com.verybigthings/state-machete "0.0.1-alpha3"
   :description "Functional statecharts implementation for Clojure and ClojureScript."
   :url "https://github.com/keechma/keechma-next"
   :license {:name "MIT License"
