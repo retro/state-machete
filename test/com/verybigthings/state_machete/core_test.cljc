@@ -2247,3 +2247,28 @@
       [{:fsm/event :t3} #{:a}]
       [{:fsm/event :t1} #{:b3}]
       [{:fsm/event :t4} #{:success}])))
+
+(deftest event-is-passed-to-handlers
+  (let [fsm
+        (make-fsm
+          [:fsm/root
+           [:fsm/state#a
+            {:fsm.on/exit (fn [fsm ev]
+                            (is (= {:fsm/event :t :foo :bar} ev))
+                            (c/update-in-data fsm :handler-calls conj [:exit :a]))}
+            [:fsm/transition
+             #:fsm.transition{:event :t
+                              :target :b
+                              :fsm/on (fn [fsm ev]
+                                        (is (= {:fsm/event :t :foo :bar} ev))
+                                        (c/update-in-data fsm :handler-calls conj :transition))}]]
+           [:fsm/state#b
+            {:fsm.on/enter (fn [fsm ev]
+                            (is (= {:fsm/event :t :foo :bar} ev))
+                            (c/update-in-data fsm :handler-calls conj [:enter :b]))}]]
+          {}
+          {:handler-calls []})
+        fsm' (c/trigger fsm {:fsm/event :t :foo :bar})]
+    (is (= #{:a} (c/get-active-atomic-states fsm)))
+    (is (= #{:b} (c/get-active-atomic-states fsm')))
+    (is (= [[:exit :a] :transition [:enter :b]] (get-in fsm' [:fsm/data :handler-calls])))))

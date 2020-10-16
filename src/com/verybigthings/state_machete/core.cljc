@@ -1,7 +1,7 @@
 (ns com.verybigthings.state-machete.core
   (:refer-clojure :exclude [compile])
   (:require [com.verybigthings.state-machete.hiccup :as hiccup]
-            [com.verybigthings.state-machete.util :refer [lexicographic-compare keyword-or-coll->set]]
+            [com.verybigthings.state-machete.util :refer [lexicographic-compare keyword-or-coll->set first-identity]]
             [clojure.set :as set]))
 
 (def compile hiccup/compile)
@@ -291,24 +291,24 @@
         [event event-for-parallel-grandparent]
         [event]))))
 
-(defn enter-history-state [fsm state-id]
+(defn enter-history-state [fsm event state-id]
   ;;(println "ENTERING HISTORY:" state-id)
   (let [state   (get-in fsm [:fsm/index :by-id state-id])
         handler (-> state :fsm.children/transitions first :fsm/on)]
-    (handler fsm)))
+    (handler fsm event)))
 
-(defn enter-state [fsm state-id]
+(defn enter-state [fsm event state-id]
   ;;(println "ENTERING:" state-id)
   (let [state                   (get-in fsm [:fsm/index :by-id state-id])
         ;; State can be active if we're entering as a result of an targetless transition
         ;; in this case, we don't want to re-run the fsm.on/enter handler
         is-state-active         (state-active? fsm state)
-        enter-handler           (if is-state-active identity (:fsm.on/enter state))
+        enter-handler           (if is-state-active first-identity (:fsm.on/enter state))
         pre-inbound             (get-in fsm [:fsm/session :inbound])
         fsm'                    (-> fsm
                                   (assoc-in [:fsm/state :active state-id] (= :atomic (:fsm.state/type state)))
                                   (assoc-in [:fsm/session :inbound] [])
-                                  enter-handler)
+                                  (enter-handler event))
         post-inbound            (get-in fsm' [:fsm/session :inbound])
         nil-event-transition    (get-nil-event-transition fsm' state-id)
         final-state-done-events (when-not is-state-active (get-final-state-done-events fsm' state))
@@ -320,14 +320,14 @@
     (assoc-in fsm' [:fsm/session :inbound] final-inbound)))
 
 ;; TODO: terminate fsm when final state that is a direct child of the root is entered
-(defn enter-states [fsm to-enter]
+(defn enter-states [fsm event to-enter]
   ;;(println "TO ENTER" to-enter)
   (reduce
     (fn [acc state-id]
       (let [state-type (get-in acc [:fsm/index :by-id state-id :fsm/type])]
         (if (= :fsm/history state-type)
-          (enter-history-state acc state-id)
-          (enter-state acc state-id))))
+          (enter-history-state acc event state-id)
+          (enter-state acc event state-id))))
     fsm
     to-enter))
 
@@ -375,7 +375,7 @@
         state-ids-with-history)
       fsm)))
 
-(defn exit-states [fsm to-exit]
+(defn exit-states [fsm event to-exit]
   ;;(println "TO EXIT" to-exit)
   (let [fsm' (record-histories fsm to-exit)]
     ;;(println (:fsm/state fsm'))
@@ -384,11 +384,11 @@
         (let [exit-handler (get-in fsm [:fsm/index :by-id state-id :fsm.on/exit])]
           (-> acc
             (update-in [:fsm/state :active] dissoc state-id)
-            exit-handler)))
+            (exit-handler event))))
       fsm'
       to-exit)))
 
-(defn transition-states [fsm]
+(defn transition-states [fsm event]
   (let [transitions-with-domain (get-in fsm [:fsm/session :transitions])]
     (reduce
       (fn [acc t]
@@ -402,9 +402,9 @@
               handler       (get-in t [:transition :fsm/on])]
           ;;(println "IS TARGETLESS" is-targetless)
           (-> acc
-            (exit-states to-exit)
-            handler
-            (enter-states to-enter)
+            (exit-states event to-exit)
+            (handler event)
+            (enter-states event to-enter)
             (update-in [:fsm/session :transitions] rest))))
       fsm
       transitions-with-domain)))
@@ -434,7 +434,7 @@
           (update-in [:fsm/session :inbound] #(vec (rest %)))
           (assoc-in [:fsm/state :time] system-time)
           (assoc-in [:fsm/session :transitions] transitions-with-domain)
-          transition-states
+          (transition-states event)
           (recur system-time)))
       (trigger-scheduled fsm system-time))))
 
@@ -447,7 +447,7 @@
      (-> fsm
        (assoc :fsm/data data
               :fsm/session {:inbound [] :outbound []})
-       (enter-states to-enter)
+       (enter-states {:fsm/event :fsm/start} to-enter)
        (run-small-step (get-system-time))))))
 
 (defn trigger

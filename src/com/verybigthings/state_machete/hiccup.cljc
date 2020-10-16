@@ -1,6 +1,6 @@
 (ns com.verybigthings.state-machete.hiccup
   (:refer-clojure :exclude [compile])
-  (:require [com.verybigthings.state-machete.util :refer [keyword-or-coll->set]]
+  (:require [com.verybigthings.state-machete.util :refer [keyword-or-coll->set first-identity]]
             [clojure.spec.alpha :as s]
             [com.fulcrologic.guardrails.core :refer [>defn >def | ? =>]]
             [clojure.string :as str]
@@ -164,14 +164,13 @@
         initial-id)
       (first (remove #(= :fsm/final (:fsm/type %)) child-state-ids)))))
 
-(defn default-handler [fsm & _] fsm)
 
 (defn process-handler [handler context]
   (if (keyword? handler)
     (let [handler' (get-in context [:fsm/handlers handler])]
       (assert handler' (str "Handler named " handler " doesn't exist"))
       handler')
-    (or handler default-handler)))
+    (or handler first-identity)))
 
 (defn drop-last-wildcard [event-name-parts]
   (if (= "*" (last event-name-parts))

@@ -18,3 +18,5 @@
 
 (defn keyword-or-coll->set [v]
   (if (keyword? v) #{v} (set v)))
+
+(defn first-identity [arg & _] arg)
