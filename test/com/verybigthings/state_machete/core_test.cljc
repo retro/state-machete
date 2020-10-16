@@ -13,7 +13,7 @@
     (let [[first-event-expected-state & rest-events-expected-states] events-expected-states]
       (if first-event-expected-state
         (let [[event expected-state] first-event-expected-state
-              _ (println "********************************************************************************************")
+              _    (println "********************************************************************************************")
               fsm' (c/trigger fsm event)]
           (is (= expected-state (c/get-active-atomic-states fsm')))
           (recur rest-events-expected-states fsm'))
@@ -1511,116 +1511,116 @@
 
 (deftest send-data-send-1
   (let [fsm
-        (make-fsm
-          [:fsm/root
-           {:fsm.on/enter (fn [fsm & _] (c/assoc-data fsm {:foo 1 :bar 2 :bat 3}))}
-           [:fsm/state#a
-            [:fsm/transition
-             #:fsm.transition{:target :b
-                              :event :t
-                              :fsm/on (fn [fsm & _]
-                                        (let [fsm-data (c/get-data fsm)
-                                              data     {:foo (:foo fsm-data)
-                                                        :bar (:bar fsm-data)
-                                                        :bif (:bat fsm-data)
-                                                        :belt 4}]
-                                          (c/raise-delayed fsm 10 {:fsm/event :s1 :data data})))}]]
-           [:fsm/state#b
-            [:fsm/transition
-             #:fsm.transition{:event :s1
-                              :target :c
-                              :cond (fn [_ ev]
-                                      (= (:data ev) {:foo 1 :bar 2 :bif 3 :belt 4}))
-                              :fsm/on (fn [fsm & _]
-                                        (c/raise fsm {:fsm/event :s2 :data "More content."}))}]
-            [:fsm/transition
-             #:fsm.transition{:event :s1 :target :f}]]
-           [:fsm/state#c
-            [:fsm/transition
-             #:fsm.transition{:event :s2
-                              :target :d
-                              :cond (fn [_ ev]
-                                      (= (:data ev) "More content."))
-                              :fsm/on (fn [fsm & _]
-                                        (c/raise fsm {:fsm/event :s3 :data "Hello world."}))}]
-            [:fsm/transition
-             #:fsm.transition{:event :s2 :target :f}]]
-           [:fsm/state#d
-            [:fsm/transition
-             #:fsm.transition{:event :s3
-                              :target :e
-                              :cond (fn [_ ev]
-                                      (= (:data ev) "Hello world."))}]
-            [:fsm/transition
-             #:fsm.transition{:event :s3 :target :f}]]
-           [:fsm/state#e]
-           [:fsm/state#f]])
-        fsm' (assert-states
-               fsm #{:a}
-               [{:fsm/event :t} #{:b}])
+                 (make-fsm
+                   [:fsm/root
+                    {:fsm.on/enter (fn [fsm & _] (c/assoc-data fsm {:foo 1 :bar 2 :bat 3}))}
+                    [:fsm/state#a
+                     [:fsm/transition
+                      #:fsm.transition{:target :b
+                                       :event :t
+                                       :fsm/on (fn [fsm & _]
+                                                 (let [fsm-data (c/get-data fsm)
+                                                       data     {:foo (:foo fsm-data)
+                                                                 :bar (:bar fsm-data)
+                                                                 :bif (:bat fsm-data)
+                                                                 :belt 4}]
+                                                   (c/raise-delayed fsm 10 {:fsm/event :s1 :data data})))}]]
+                    [:fsm/state#b
+                     [:fsm/transition
+                      #:fsm.transition{:event :s1
+                                       :target :c
+                                       :cond (fn [_ ev]
+                                               (= (:data ev) {:foo 1 :bar 2 :bif 3 :belt 4}))
+                                       :fsm/on (fn [fsm & _]
+                                                 (c/raise fsm {:fsm/event :s2 :data "More content."}))}]
+                     [:fsm/transition
+                      #:fsm.transition{:event :s1 :target :f}]]
+                    [:fsm/state#c
+                     [:fsm/transition
+                      #:fsm.transition{:event :s2
+                                       :target :d
+                                       :cond (fn [_ ev]
+                                               (= (:data ev) "More content."))
+                                       :fsm/on (fn [fsm & _]
+                                                 (c/raise fsm {:fsm/event :s3 :data "Hello world."}))}]
+                     [:fsm/transition
+                      #:fsm.transition{:event :s2 :target :f}]]
+                    [:fsm/state#d
+                     [:fsm/transition
+                      #:fsm.transition{:event :s3
+                                       :target :e
+                                       :cond (fn [_ ev]
+                                               (= (:data ev) "Hello world."))}]
+                     [:fsm/transition
+                      #:fsm.transition{:event :s3 :target :f}]]
+                    [:fsm/state#e]
+                    [:fsm/state#f]])
+        fsm'     (assert-states
+                   fsm #{:a}
+                   [{:fsm/event :t} #{:b}])
         fsm-time (c/get-time fsm')
-        fsm'' (c/trigger fsm' {:fsm/event :t2} (+ fsm-time 10))]
+        fsm''    (c/trigger fsm' {:fsm/event :t2} (+ fsm-time 10))]
     (is (= #{:e} (c/get-active-atomic-states fsm'')))))
 
 (deftest delayed-send-send-1
   (let [fsm
-        (make-fsm
-          [:fsm/root
-           [:fsm/state#a
-            [:fsm/transition
-             #:fsm.transition{:target :b
-                              :event :t1
-                              :fsm/on (fn [fsm & _] (c/raise-delayed fsm 10 {:fsm/event :s}))}]]
-           [:fsm/state#b
-            [:fsm/transition #:fsm.transition{:target :c :event :s}]]
-           [:fsm/state#c
-            [:fsm/transition #:fsm.transition{:target :d :event :t2}]]
-           [:fsm/state#d]])
-        fsm' (assert-states
-               fsm #{:a}
-               [{:fsm/event :t1} #{:b}])
+                 (make-fsm
+                   [:fsm/root
+                    [:fsm/state#a
+                     [:fsm/transition
+                      #:fsm.transition{:target :b
+                                       :event :t1
+                                       :fsm/on (fn [fsm & _] (c/raise-delayed fsm 10 {:fsm/event :s}))}]]
+                    [:fsm/state#b
+                     [:fsm/transition #:fsm.transition{:target :c :event :s}]]
+                    [:fsm/state#c
+                     [:fsm/transition #:fsm.transition{:target :d :event :t2}]]
+                    [:fsm/state#d]])
+        fsm'     (assert-states
+                   fsm #{:a}
+                   [{:fsm/event :t1} #{:b}])
         fsm-time (c/get-time fsm')
-        fsm'' (c/trigger fsm' {:fsm/event :t2} (+ fsm-time 10))]
+        fsm''    (c/trigger fsm' {:fsm/event :t2} (+ fsm-time 10))]
     (is (= #{:d} (c/get-active-atomic-states fsm'')))))
 
 (deftest delayed-send-send-2
   (let [fsm
-        (make-fsm
-          [:fsm/root
-           [:fsm/state#a
-            {:fsm.on/exit (fn [fsm & _]
-                            (c/raise-delayed fsm 10 {:fsm/event :s}))}
-            [:fsm/transition #:fsm.transition{:target :b :event :t1}]]
-           [:fsm/state#b
-            [:fsm/transition #:fsm.transition{:target :c :event :s}]]
-           [:fsm/state#c
-            [:fsm/transition #:fsm.transition{:target :d :event :t2}]]
-           [:fsm/state#d]])
-        fsm' (assert-states
-               fsm #{:a}
-               [{:fsm/event :t1} #{:b}])
+                 (make-fsm
+                   [:fsm/root
+                    [:fsm/state#a
+                     {:fsm.on/exit (fn [fsm & _]
+                                     (c/raise-delayed fsm 10 {:fsm/event :s}))}
+                     [:fsm/transition #:fsm.transition{:target :b :event :t1}]]
+                    [:fsm/state#b
+                     [:fsm/transition #:fsm.transition{:target :c :event :s}]]
+                    [:fsm/state#c
+                     [:fsm/transition #:fsm.transition{:target :d :event :t2}]]
+                    [:fsm/state#d]])
+        fsm'     (assert-states
+                   fsm #{:a}
+                   [{:fsm/event :t1} #{:b}])
         fsm-time (c/get-time fsm')
-        fsm'' (c/trigger fsm' {:fsm/event :t2} (+ fsm-time 10))]
+        fsm''    (c/trigger fsm' {:fsm/event :t2} (+ fsm-time 10))]
     (is (= #{:d} (c/get-active-atomic-states fsm'')))))
 
 (deftest delayed-send-send-3
   (let [fsm
-        (make-fsm
-          [:fsm/root
-           [:fsm/state#a
-            [:fsm/transition #:fsm.transition{:target :b :event :t1}]]
-           [:fsm/state#b
-            {:fsm.on/enter (fn [fsm & _]
-                             (c/raise-delayed fsm 10 {:fsm/event :s}))}
-            [:fsm/transition #:fsm.transition{:target :c :event :s}]]
-           [:fsm/state#c
-            [:fsm/transition #:fsm.transition{:target :d :event :t2}]]
-           [:fsm/state#d]])
-        fsm' (assert-states
-               fsm #{:a}
-               [{:fsm/event :t1} #{:b}])
+                 (make-fsm
+                   [:fsm/root
+                    [:fsm/state#a
+                     [:fsm/transition #:fsm.transition{:target :b :event :t1}]]
+                    [:fsm/state#b
+                     {:fsm.on/enter (fn [fsm & _]
+                                      (c/raise-delayed fsm 10 {:fsm/event :s}))}
+                     [:fsm/transition #:fsm.transition{:target :c :event :s}]]
+                    [:fsm/state#c
+                     [:fsm/transition #:fsm.transition{:target :d :event :t2}]]
+                    [:fsm/state#d]])
+        fsm'     (assert-states
+                   fsm #{:a}
+                   [{:fsm/event :t1} #{:b}])
         fsm-time (c/get-time fsm')
-        fsm'' (c/trigger fsm' {:fsm/event :t2} (+ fsm-time 10))]
+        fsm''    (c/trigger fsm' {:fsm/event :t2} (+ fsm-time 10))]
     (is (= #{:d} (c/get-active-atomic-states fsm'')))))
 
 (deftest action-send-send-1
@@ -2250,25 +2250,45 @@
 
 (deftest event-is-passed-to-handlers
   (let [fsm
-        (make-fsm
-          [:fsm/root
-           [:fsm/state#a
-            {:fsm.on/exit (fn [fsm ev]
-                            (is (= {:fsm/event :t :foo :bar} ev))
-                            (c/update-in-data fsm :handler-calls conj [:exit :a]))}
-            [:fsm/transition
-             #:fsm.transition{:event :t
-                              :target :b
-                              :fsm/on (fn [fsm ev]
-                                        (is (= {:fsm/event :t :foo :bar} ev))
-                                        (c/update-in-data fsm :handler-calls conj :transition))}]]
-           [:fsm/state#b
-            {:fsm.on/enter (fn [fsm ev]
-                            (is (= {:fsm/event :t :foo :bar} ev))
-                            (c/update-in-data fsm :handler-calls conj [:enter :b]))}]]
-          {}
-          {:handler-calls []})
+             (make-fsm
+               [:fsm/root
+                [:fsm/state#a
+                 {:fsm.on/exit (fn [fsm ev]
+                                 (is (= {:fsm/event :t :foo :bar} ev))
+                                 (c/update-in-data fsm :handler-calls conj [:exit :a]))}
+                 [:fsm/transition
+                  #:fsm.transition{:event :t
+                                   :target :b
+                                   :fsm/on (fn [fsm ev]
+                                             (is (= {:fsm/event :t :foo :bar} ev))
+                                             (c/update-in-data fsm :handler-calls conj :transition))}]]
+                [:fsm/state#b
+                 {:fsm.on/enter (fn [fsm ev]
+                                  (is (= {:fsm/event :t :foo :bar} ev))
+                                  (c/update-in-data fsm :handler-calls conj [:enter :b]))}]]
+               {}
+               {:handler-calls []})
         fsm' (c/trigger fsm {:fsm/event :t :foo :bar})]
     (is (= #{:a} (c/get-active-atomic-states fsm)))
     (is (= #{:b} (c/get-active-atomic-states fsm')))
     (is (= [[:exit :a] :transition [:enter :b]] (get-in fsm' [:fsm/data :handler-calls])))))
+
+(deftest sending-data
+  (let [fsm
+             (make-fsm
+               [:fsm/root
+                [:fsm/state#a
+                 {:fsm.on/exit (fn [fsm & _]
+                                 (c/send fsm {:fsm/event :t1}))}
+                 [:fsm/transition
+                  #:fsm.transition{:event :t
+                                   :target :b
+                                   :fsm/on (fn [fsm & _]
+                                             (c/send fsm {:fsm/event :t2}))}]]
+                [:fsm/state#b
+                 {:fsm.on/enter (fn [fsm & _]
+                                  (c/send fsm {:fsm/event :t3}))}]])
+        fsm' (c/trigger fsm {:fsm/event :t :foo :bar})]
+    (is (= #{:a} (c/get-active-atomic-states fsm)))
+    (is (= #{:b} (c/get-active-atomic-states fsm')))
+    (is (= [{:fsm/event :t1} {:fsm/event :t2} {:fsm/event :t3}] (c/get-events fsm')))))

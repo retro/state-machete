@@ -497,5 +497,11 @@
   (let [time (get-time fsm)]
     (update-in fsm [:fsm/state :scheduled-events] vec-conj {:at (+ time event-delay) :event event})))
 
+(defn send [fsm event]
+  (update-in fsm [:fsm/session :outbound] vec-conj event))
+
+(defn get-events [fsm]
+  (get-in fsm [:fsm/session :outbound]))
+
 
 
