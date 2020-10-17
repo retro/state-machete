@@ -3,7 +3,7 @@
   <groupId>com.verybigthings</groupId>
   <artifactId>state-machete</artifactId>
   <packaging>jar</packaging>
-  <version>0.0.1-alpha2</version>
+  <version>0.0.1-alpha3</version>
   <name>state-machete</name>
   <description>Functional statecharts implementation for Clojure and ClojureScript.</description>
   <url>https://github.com/keechma/keechma-next</url>
@@ -17,7 +17,7 @@
     <url>https://github.com/retro/state-machete</url>
     <connection>scm:git:git://github.com/retro/state-machete.git</connection>
     <developerConnection>scm:git:ssh://git@github.com/retro/state-machete.git</developerConnection>
-    <tag>8d7c6b9a4bd83cd0d2a9b2951b76a95c41d7f41b</tag>
+    <tag>35e686777c5da1e9d2d39b0b104bb4f3248b0e49</tag>
   </scm>
   <build>
     <sourceDirectory>src</sourceDirectory>

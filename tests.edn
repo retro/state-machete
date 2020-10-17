@@ -1,0 +1,3 @@
+#kaocha/v1
+    {:reporter #profile {:ci kaocha.report/documentation
+                         :default kaocha.report/dots}}

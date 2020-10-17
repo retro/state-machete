@@ -1,6 +1,10 @@
 (ns com.verybigthings.state-machete.core-test
   (:require [clojure.test :refer :all]
-            [com.verybigthings.state-machete.core :as c]))
+            [com.verybigthings.state-machete.core :as c]
+            [criterium.core :as cr]
+            [clj-async-profiler.core :as prof]))
+
+(set! *warn-on-reflection* true)
 
 (defn log [& forms]
   (doseq [f forms]
@@ -13,7 +17,6 @@
     (let [[first-event-expected-state & rest-events-expected-states] events-expected-states]
       (if first-event-expected-state
         (let [[event expected-state] first-event-expected-state
-              _    (println "********************************************************************************************")
               fsm' (c/trigger fsm event)]
           (is (= expected-state (c/get-active-atomic-states fsm')))
           (recur rest-events-expected-states fsm'))
@@ -2355,3 +2358,59 @@
     (is (= #{:a} (c/get-active-atomic-states fsm)))
     (is (= #{:b} (c/get-active-atomic-states fsm')))
     (is (= [{:fsm/event :t1} {:fsm/event :t2} {:fsm/event :t3}] (c/get-events fsm')))))
+
+(defn benchmark []
+  (let [fsm [:fsm/root {:fsm/initial :a}
+             [:fsm/parallel#a
+              [:fsm/parallel#b
+               [:fsm/parallel#c
+                [:fsm/parallel#d
+                 [:fsm/parallel#e
+                  [:fsm/state#i {:fsm/initial :i1}
+                   [:fsm/state#i1
+                    [:fsm/transition #:fsm.transition{:target :i2 :event :t}]]
+                   [:fsm/state#i2]]
+                  [:fsm/state#j]]
+                 [:fsm/state#h]]
+                [:fsm/state#g]]
+               [:fsm/state#f {:fsm/initial :f1}
+                [:fsm/state#f1
+                 [:fsm/transition #:fsm.transition{:target :l :event :t}]]
+                [:fsm/state#f2]]]
+              [:fsm/state#k]]
+             [:fsm/state#l]]
+        compiled-fsm (c/compile fsm)
+        run-fn (fn []
+                 (let [f (c/start compiled-fsm)]
+                   (c/trigger f {:fsm/event :t})))]
+    (cr/with-progress-reporting (cr/bench (run-fn) :verbose))))
+
+(defn profile []
+  (let [fsm [:fsm/root {:fsm/initial :a}
+             [:fsm/parallel#a
+              [:fsm/parallel#b
+               [:fsm/parallel#c
+                [:fsm/parallel#d
+                 [:fsm/parallel#e
+                  [:fsm/state#i {:fsm/initial :i1}
+                   [:fsm/state#i1
+                    [:fsm/transition #:fsm.transition{:target :i2 :event :t}]]
+                   [:fsm/state#i2]]
+                  [:fsm/state#j]]
+                 [:fsm/state#h]]
+                [:fsm/state#g]]
+               [:fsm/state#f {:fsm/initial :f1}
+                [:fsm/state#f1
+                 [:fsm/transition #:fsm.transition{:target :l :event :t}]]
+                [:fsm/state#f2]]]
+              [:fsm/state#k]]
+             [:fsm/state#l]]
+        compiled-fsm (c/compile fsm)
+        run-fn (fn profile-runner []
+                 (let [f (c/start compiled-fsm)]
+                   (c/trigger f {:fsm/event :t})))]
+    (prof/profile (dotimes [i 100000] (run-fn)))))
+
+(comment
+  (benchmark)
+  (profile))

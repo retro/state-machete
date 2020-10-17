@@ -193,15 +193,13 @@
               {:length -1 :matcher (constantly true)}
               (let [e-name  (name e)
                     e-parts (-> e-name (str/split split-at-dot-re) drop-last-wildcard)
-                    regex   (-> (concat
-                                  [:cat :start]
-                                  (->> e-parts
-                                    (map (fn [p] (if (= "*" p) [:+ :any] p)))
-                                    (interpose "."))
-                                  [[:* "." [:+ :any]]
-                                   :end])
-                              regal/regex)]
-                {:length (count e-parts) :matcher #(and % (re-matches regex %))}))))
+                    matching-e-name (str/join "." e-parts)
+                    matching-e-name-partial (str matching-e-name ".")]
+                {:length (count e-parts)
+                 :matcher (fn [checking-e-name]
+                            (and checking-e-name
+                              (or (= matching-e-name checking-e-name)
+                                (str/starts-with? checking-e-name matching-e-name-partial))))}))))
         (sort-by :length)
         (map :matcher)))))
 
@@ -277,7 +275,10 @@
                             vec)
         child-states      (filterv #(contains? state-nodes (:fsm/type %)) child-nodes)
         child-transitions (filterv #(= :fsm/transition (:fsm/type %)) child-nodes)
-        history-states    (filterv #(= :fsm/history (:fsm/type %)) child-states)]
+        history-states    (filterv #(= :fsm/history (:fsm/type %)) child-states)
+
+        event-transitions (filter :fsm.transition/event child-transitions)
+        nil-transitions   (remove :fsm.transition/event child-transitions)]
 
     (cond->
       (merge
@@ -313,8 +314,11 @@
       (seq history-states)
       (assoc :fsm.children.states/history history-states)
 
-      (seq child-transitions)
-      (assoc :fsm.children/transitions child-transitions))))
+      (seq event-transitions)
+      (assoc :fsm.children/transitions event-transitions)
+
+      (seq nil-transitions)
+      (assoc :fsm.children.transitions/nil nil-transitions))))
 
 (defn build-index
   ([node] (build-index {} node))
