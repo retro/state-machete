@@ -188,18 +188,19 @@
 (defn make-event-name-matcher [matchers]
   (let [matchings         (map :matching matchers)
         matching-partials (map :matching-partial matchers)]
-    (fn [e-name]
-      (or
-        (reduce
-          (fn [_ m]
-            (when (= m e-name) (reduced true)))
-          nil
-          matchings)
-        (reduce
-          (fn [_ m]
-            (when (str/starts-with? e-name m) (reduced true)))
-          nil
-          matching-partials)))))
+    (memoize
+      (fn [e-name]
+        (or
+          (reduce
+            (fn [_ m]
+              (when (= m e-name) (reduced true)))
+            nil
+            matchings)
+          (reduce
+            (fn [_ m]
+              (when (str/starts-with? e-name m) (reduced true)))
+            nil
+            matching-partials))))))
 
 (defn process-transition-event [event]
   (when event
@@ -281,7 +282,7 @@
         id                (or (:fsm/id attrs) inline-id (keyword (gensym "fsm/id-")))
         path              (get-in context [:fsm/cursor :path])
         is-state-node     (contains? state-nodes node-name)
-        child-context     (cond-> context
+        child-context     (cond-> (update-in context [:fsm/cursor :id-path] conj id)
                             is-state-node
                             (assoc-in [:fsm/cursor :parent-state] {:fsm/id id :fsm/path path}))
         child-nodes       (->> (if (map? first-child) rest-children children)
@@ -302,6 +303,7 @@
         {:fsm/type node-name
          :fsm/id id
          :fsm/parent-state (get-in context [:fsm/cursor :parent-state])
+         :fsm/id-path (conj (get-in context [:fsm/cursor :id-path]) id)
          :fsm/path (get-in context [:fsm/cursor :path])})
 
       (and (= :fsm/state node-name) (seq child-states))
@@ -325,7 +327,10 @@
       (assoc :fsm/children child-nodes)
 
       (seq child-states)
-      (assoc :fsm.children/states (map :fsm/id child-states))
+      (as-> attrs'
+        (-> attrs'
+          (assoc :fsm.children.states/history-excluded (map :fsm/id (remove #(= :fsm/history (:fsm/type %)) child-states)))
+          (assoc :fsm.children/states (map :fsm/id child-states))))
 
       (seq history-states)
       (assoc :fsm.children.states/history (map :fsm/id history-states))
@@ -401,7 +406,7 @@
               node-type (:fsm/type node)
               node' (reduce
                       (fn [node' v]
-                        (v node' index))
+                        (v node' index'))
                       node
                       (get-in context [:visitors node-type]))]
           (-> index'
@@ -429,13 +434,28 @@
       (assoc :fsm.transition.domain/idset (set ids-in-domain))
       (assoc :fsm.transition/domain (:fsm/id transition-domain)))))
 
+(defn calculate-transitions-for-state-visitor [state index]
+  (let [parent-state-id (get-in state [:fsm/parent-state :fsm/id])]
+    (if parent-state-id
+      (let [parent-state (get-in index [:by-id parent-state-id])]
+        (-> state
+          (assoc :fsm.transitions/event (concat (:fsm.children/transitions state) (:fsm.transitions/event parent-state)))
+          (assoc :fsm.transitions/nil (concat (:fsm.children.transitions/nil state) (:fsm.transitions/nil parent-state)))))
+      (-> state
+        (assoc :fsm.transitions/event (:fsm.children/transitions state))
+        (assoc :fsm.transitions/nil (:fsm.children.transitions/nil state))))))
+
 (>defn compile
   ([node]
    [::root-node => map?]
    (compile node {}))
   ([node context]
    [::root-node map? => map?]
-   (let [expanded (expand-node (assoc context :fsm/cursor {:path []}) node)
-         context' (update-in context [:visitors :fsm/transition] conj calculate-transition-domain-visitor)]
+   (let [expanded (expand-node (assoc context :fsm/cursor {:path [] :id-path []}) node)
+         context' (-> context
+                    (update-in [:visitors :fsm/state] conj calculate-transitions-for-state-visitor)
+                    (update-in [:visitors :fsm/parallel] conj calculate-transitions-for-state-visitor)
+                    (update-in [:visitors :fsm/final] conj calculate-transitions-for-state-visitor)
+                    (update-in [:visitors :fsm/transition] conj calculate-transition-domain-visitor))]
      {:fsm/index (visit-nodes (build-index expanded) context')
       :fsm/state {}})))

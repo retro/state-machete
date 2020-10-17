@@ -13,45 +13,29 @@
   (if (sequential? path) path [path]))
 
 (def set-conj (fnil conj #{}))
+(def set-disj (fnil disj #{}))
 (def vec-conj (fnil conj []))
 
-(defn paths-overlap? [p1 p2]
-  (let [c1 (count p1)
-        c2 (count p2)]
-    (if (or (zero? c1) (zero? c2))
-      true
-      (let [c (min c1 c2)]
-        (= (subvec p1 0 c) (subvec p2 0 c))))))
-
 (defn get-active-states [fsm]
-  (-> (get-in fsm [:fsm/state :active]) keys set))
+  (let [active (get-in fsm [:fsm/state :active])]
+    (set/union (:atomic active) (:compound active))))
 
 (defn get-active-atomic-states [fsm]
-  (reduce
-    (fn [acc [state-id is-atomic]]
-      (if is-atomic
-        (conj acc state-id)
-        acc))
-    #{}
-    (get-in fsm [:fsm/state :active])))
+  (get-in fsm [:fsm/state :active :atomic]))
 
 (defn get-nil-event-transition [fsm state-id]
-  (let [fsm-index-by-id (get-in fsm [:fsm/index :by-id])]
-    (loop [id state-id]
-      (when id
-        (let [state         (fsm-index-by-id id)
-              transition-id (reduce
-                              (fn [_ t-id]
-                                (let [t       (fsm-index-by-id t-id)
-                                      t-cond  (:fsm.transition/cond t)
-                                      t-event (:fsm.transition/event t)]
-                                  (when (and (nil? t-event) (t-cond fsm nil))
-                                    (reduced t-id))))
-                              nil
-                              (:fsm.children.transitions/nil state))]
-          (if transition-id
-            {:transition (fsm-index-by-id transition-id)}
-            (recur (get-in state [:fsm/parent-state :fsm/id]))))))))
+  (let [fsm-index-by-id (get-in fsm [:fsm/index :by-id])
+        state           (fsm-index-by-id state-id)
+        transition      (reduce
+                          (fn [_ t-id]
+                            (let [t      (fsm-index-by-id t-id)
+                                  t-cond (:fsm.transition/cond t)]
+                              (when (t-cond fsm nil)
+                                (reduced t))))
+                          nil
+                          (:fsm.transitions/nil state))]
+    (when transition
+      {:transition transition})))
 
 (defn get-history-target-states [fsm state]
   (let [t-id       (-> state :fsm.children.transitions/nil first)
@@ -86,7 +70,7 @@
                  selected-ids'       (conj selected-ids id)
                  children-to-process (cond
                                        (= :fsm/parallel fsm-type)
-                                       (remove #(= :fsm/history (:fsm/type %)) (map fsm-index-by-id (:fsm.children/states state)))
+                                       (map fsm-index-by-id (:fsm.children.states/history-excluded state))
 
                                        (= :fsm/history fsm-type)
                                        (map fsm-index-by-id (get-history-target-states fsm state))
@@ -105,7 +89,7 @@
                (recur selected-ids' to-process' (conj seen-ids id))
                selected-ids'))))))))
 
-(defn select-transition-states-to-exit [fsm {:keys [transition domain]}]
+(defn select-transition-states-to-exit [fsm {:keys [transition]}]
   (let [active-states (get-active-states fsm)
         exit-paths    (filter #(contains? active-states %) (:fsm.transition.domain/ids transition))]
     (->> exit-paths reverse seq)))
@@ -121,12 +105,11 @@
                            (fn [acc state-id]
                              (loop [id           state-id
                                     selected-ids acc]
-                               (if-let [state (fsm-index-by-id id)]
-                                 (if (= id domain-id)
-                                   selected-ids
-                                   (let [parent-id (get-in state [:fsm/parent-state :fsm/id])]
-                                     (recur parent-id (update selected-ids parent-id set-conj id))))
-                                 selected-ids)))
+                               (if (or (nil? id) (= id domain-id))
+                                 selected-ids
+                                 (let [state (fsm-index-by-id id)
+                                       parent-id (get-in state [:fsm/parent-state :fsm/id])]
+                                   (recur parent-id (update selected-ids parent-id set-conj id))))))
                            {}
                            target-state-ids)
         states-to-enter  (rest (select-self-and-descendant-states-to-enter fsm domain initial-ids))]
@@ -134,21 +117,16 @@
 
 (defn get-event-transition-for-state [fsm event state-id]
   (let [fsm-index-by-id (get-in fsm [:fsm/index :by-id])
-        event-name      (when-let [e (:fsm/event event)] (name e))]
-    (loop [id state-id]
-      (when id
-        (let [state               (fsm-index-by-id id)
-              transition-ids      (:fsm.children/transitions state)
-              matching-transition (reduce
-                                    (fn [_ t-id]
-                                      (let [t       (fsm-index-by-id t-id)
-                                            t-cond  (:fsm.transition/cond t)
-                                            t-event (:fsm.transition/event t)]
-                                        (when (and (t-cond fsm event) (t-event event-name)) (reduced t))))
-                                    nil
-                                    transition-ids)]
-          (or matching-transition
-            (recur (get-in state [:fsm/parent-state :fsm/id]))))))))
+        event-name      (when-let [e (:fsm/event event)] (name e))
+        state           (fsm-index-by-id state-id)]
+    (reduce
+      (fn [_ t-id]
+        (let [t       (fsm-index-by-id t-id)
+              t-cond  (:fsm.transition/cond t)
+              t-event (:fsm.transition/event t)]
+          (when (and (t-event event-name) (t-cond fsm event)) (reduced t))))
+      nil
+      (:fsm.transitions/event state))))
 
 (defn get-transition-domain [fsm transition]
   (let [transition-domain-id (:fsm.transition/domain transition)]
@@ -158,10 +136,11 @@
   (let [atomic-states (get-active-atomic-states fsm)
         transitions   (reduce
                         (fn [acc state-id]
-                          (let [transition (get-event-transition-for-state fsm event state-id)
-                                domain     (when transition (get-transition-domain fsm transition))]
+                          (let [transition (get-event-transition-for-state fsm event state-id)]
                             (if transition
-                              (conj acc {:transition transition :domain domain :path (:fsm/path transition)})
+                              (conj acc {:transition transition
+                                         :domain  (get-transition-domain fsm transition)
+                                         :path (:fsm/path transition)})
                               acc)))
                         (sorted-set-by #(lexicographic-compare (:path %1) (:path %2)))
                         atomic-states)]
@@ -240,12 +219,11 @@
 (defn enter-state [fsm event state-id]
   ;;(println "ENTERING:" state-id)
   (let [state                   (get-in fsm [:fsm/index :by-id state-id])
-        ;; State can be active if we're entering as a result of an targetless transition
-        ;; in this case, we don't want to re-run the fsm.on/enter handler
+        is-atomic               (= :atomic (:fsm.state/type state))
         enter-handler           (:fsm.on/enter state)
         pre-inbound             (get-in fsm [:fsm/session :inbound])
         fsm'                    (-> fsm
-                                  (assoc-in [:fsm/state :active state-id] (= :atomic (:fsm.state/type state)))
+                                  (update-in [:fsm/state :active (if is-atomic :atomic :compound)] set-conj state-id)
                                   (assoc-in [:fsm/session :inbound] [])
                                   (enter-handler event))
         post-inbound            (get-in fsm' [:fsm/session :inbound])
@@ -323,9 +301,11 @@
     ;;(println (:fsm/state fsm'))
     (reduce
       (fn [acc state-id]
-        (let [exit-handler (get-in fsm-index-by-id [state-id :fsm.on/exit])]
+        (let [state        (fsm-index-by-id state-id)
+              exit-handler (:fsm.on/exit state)
+              is-atomic    (= :atomic (:fsm.state/type state))]
           (-> acc
-            (update-in [:fsm/state :active] dissoc state-id)
+            (update-in [:fsm/state :active (if is-atomic :atomic :compound)] set-disj state-id)
             (exit-handler event))))
       fsm'
       to-exit)))
@@ -335,11 +315,10 @@
     (-> (reduce
           (fn [{:keys [fsm seen-ids] :as acc} t]
             ;; Targetless transitions are specific in a way that they don't cause any state to exit or to enter
-            ;; but we still want to re-run transitions as if we're entering the state.
+            ;; but we still want to re-run nil event transitions as if we're entering the state.
             (if (nil? (get-in t [:transition :fsm.transition/target]))
               (let [to-visit (select-transition-states-for-targetless-transition fsm t)
                     handler  (get-in t [:transition :fsm/on])]
-                ;;(println "IS TARGETLESS" is-targetless)
                 {:fsm (-> fsm
                         (handler event)
                         (visit-states event to-visit)
@@ -363,17 +342,19 @@
 
 (declare run-small-step)
 
-(defn trigger-scheduled [fsm system-time]
-  (let [scheduled       (get-in fsm [:fsm/state :scheduled-events])
-        first-scheduled (->> scheduled (filter #(>= system-time (:at %))) first)
-        rest-scheduled  (if first-scheduled (remove #(= % first-scheduled) scheduled) scheduled)]
-    (if first-scheduled
-      (run-small-step
-        (-> fsm
-          (assoc-in [:fsm/state :scheduled-events] rest-scheduled)
-          (assoc-in [:fsm/session :inbound] [first-scheduled]))
-        system-time)
-      fsm)))
+(defn trigger-scheduled
+  ([fsm] (trigger-scheduled fsm (get-system-time)))
+  ([fsm system-time]
+   (let [scheduled       (get-in fsm [:fsm/state :scheduled-events])
+         first-scheduled (->> scheduled (filter #(>= system-time (:at %))) first)
+         rest-scheduled  (if first-scheduled (remove #(= % first-scheduled) scheduled) scheduled)]
+     (if first-scheduled
+       (run-small-step
+         (-> fsm
+           (assoc-in [:fsm/state :scheduled-events] rest-scheduled)
+           (assoc-in [:fsm/session :inbound] [first-scheduled]))
+         system-time)
+       fsm))))
 
 (defn run-small-step [fsm system-time]
   (let [inbound (get-in fsm [:fsm/session :inbound])]

@@ -2386,7 +2386,7 @@
         started-fsm (c/start compiled-fsm)
         run-fn1 (fn []
                   (c/trigger started-fsm {:fsm/event :t}))]
-    (cr/with-progress-reporting (cr/bench (run-fn1) :verbose))))
+    (cr/with-progress-reporting (cr/bench (run-fn) :verbose))))
 
 (defn profile []
   (let [fsm [:fsm/root {:fsm/initial :a}
