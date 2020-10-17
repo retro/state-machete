@@ -1,9 +1,11 @@
 (ns com.verybigthings.state-machete.hiccup
   (:refer-clojure :exclude [compile])
-  (:require [com.verybigthings.state-machete.util :refer [keyword-or-coll->set first-identity]]
+  (:require [com.verybigthings.state-machete.util
+             :refer [keyword-or-coll->set first-identity descendant-path? lexicographic-compare]]
             [clojure.spec.alpha :as s]
             [com.fulcrologic.guardrails.core :refer [>defn >def | ? =>]]
             [clojure.string :as str]
+            [clojure.walk :as walk]
             [lambdaisland.regal :as regal]))
 
 (defn make-valid-node-name? [base-node-kw]
@@ -183,6 +185,22 @@
     (butlast event-name-parts)
     event-name-parts))
 
+(defn make-event-name-matcher [matchers]
+  (let [matchings         (map :matching matchers)
+        matching-partials (map :matching-partial matchers)]
+    (fn [e-name]
+      (or
+        (reduce
+          (fn [_ m]
+            (when (= m e-name) (reduced true)))
+          nil
+          matchings)
+        (reduce
+          (fn [_ m]
+            (when (str/starts-with? e-name m) (reduced true)))
+          nil
+          matching-partials)))))
+
 (defn process-transition-event [event]
   (when event
     (let [event-set (keyword-or-coll->set event)]
@@ -190,18 +208,16 @@
         (map
           (fn [e]
             (if (= :* e)
-              {:length -1 :matcher (constantly true)}
+              {:length -1 :matching-partial ""}
               (let [e-name  (name e)
                     e-parts (-> e-name (str/split split-at-dot-re) drop-last-wildcard)
                     matching-e-name (str/join "." e-parts)
                     matching-e-name-partial (str matching-e-name ".")]
                 {:length (count e-parts)
-                 :matcher (fn [checking-e-name]
-                            (and checking-e-name
-                              (or (= matching-e-name checking-e-name)
-                                (str/starts-with? checking-e-name matching-e-name-partial))))}))))
+                 :matching matching-e-name
+                 :matching-partial matching-e-name-partial}))))
         (sort-by :length)
-        (map :matcher)))))
+        (make-event-name-matcher)))))
 
 (defn make-transition-guard [guards]
   (fn [& args]
@@ -309,27 +325,109 @@
       (assoc :fsm/children child-nodes)
 
       (seq child-states)
-      (assoc :fsm.children/states child-states)
+      (assoc :fsm.children/states (map :fsm/id child-states))
 
       (seq history-states)
-      (assoc :fsm.children.states/history history-states)
+      (assoc :fsm.children.states/history (map :fsm/id history-states))
 
       (seq event-transitions)
-      (assoc :fsm.children/transitions event-transitions)
+      (assoc :fsm.children/transitions (map :fsm/id event-transitions))
 
       (seq nil-transitions)
-      (assoc :fsm.children.transitions/nil nil-transitions))))
+      (assoc :fsm.children.transitions/nil (map :fsm/id nil-transitions)))))
+
+(defn get-transition-parent-state [index transition]
+  (let [fsm-index-by-id (get-in index [:by-id])
+        transition-state-id (get-in transition [:fsm/parent-state :fsm/id])
+        transition-state    (fsm-index-by-id transition-state-id)
+        starting-state-id   (if (= :internal (:fsm.transition/type transition))
+                              transition-state-id
+                              (get-in transition-state [:fsm/parent-state :fsm/id]))]
+    (loop [state-id starting-state-id]
+      (let [state (fsm-index-by-id state-id)]
+        (when state
+          (if (= :compound (:fsm.state/type state))
+            state
+            (recur (get-in state [:fsm/parent-state :fsm/id]))))))))
+
+(defn get-transition-domain [index transition]
+  (let [fsm-index-by-path            (get-in index [:by-path])
+        fsm-index-by-id              (get-in index [:by-id])
+        transition-parent-state      (get-transition-parent-state index transition)
+        transition-parent-state-path (:fsm/path transition-parent-state)
+        transition-target-ids        (:fsm.transition/target transition)
+        transition-targets-paths     (remove nil? (map #(get-in fsm-index-by-id [% :fsm/path]) transition-target-ids))
+        common-ancestor-path         (if (seq transition-targets-paths)
+                                       (loop [p transition-parent-state-path
+                                              i 0]
+                                         (let [comparing-path (or (subvec p 0 i) [])]
+                                           (cond
+                                             (not (every? #(descendant-path? comparing-path %) transition-targets-paths))
+                                             (drop-last comparing-path)
+
+                                             (= p comparing-path)
+                                             comparing-path
+
+                                             :else
+                                             (recur p (inc i)))))
+                                       transition-parent-state-path)]
+    (loop [p common-ancestor-path]
+      (when-let [state (fsm-index-by-path p)]
+        (if (= :compound (:fsm.state/type state))
+          state
+          (recur (get-in state [:fsm/parent-state :fsm/path])))))))
 
 (defn build-index
-  ([node] (build-index {} node))
-  ([index node]
-   (reduce
-     (fn [acc s]
-       (build-index acc s))
-     (-> index
-       (assoc-in [:by-path (:fsm/path node)] node)
-       (assoc-in [:by-id (:fsm/id node)] node))
-     (:fsm.children/states node))))
+  ([node] (build-index node {}))
+  ([node index]
+   (let [children (:fsm/children node)
+         node'    (dissoc node :fsm/children)]
+     (reduce
+       (fn [acc n]
+         (build-index n acc))
+       (-> index
+         (assoc-in [:by-path (:fsm/path node')] node')
+         (assoc-in [:by-id (:fsm/id node')] node'))
+       children))))
+
+(defn visit-nodes [index context]
+  (let [sorted-nodes (->> (:by-path index)
+                       (sort #(lexicographic-compare (first %1) (first %2)))
+                       (map last))]
+    (reduce
+      (fn [index' node]
+        (let [path (:fsm/path node)
+              id (:fsm/id node)
+              node-type (:fsm/type node)
+              node' (reduce
+                      (fn [node' v]
+                        (v node' index))
+                      node
+                      (get-in context [:visitors node-type]))]
+          (-> index'
+            (assoc-in [:by-path path] node')
+            (assoc-in [:by-id id] node'))))
+      index
+      sorted-nodes)))
+
+(defn get-ids-in-domain [index transition-domain]
+  (let [path (:fsm/path transition-domain)]
+    (->> (:by-path index)
+      (filter
+        (fn [[s-path state]]
+          (and (contains? state-nodes (:fsm/type state))
+            (descendant-path? path s-path))))
+      (map last)
+      (sort #(lexicographic-compare (:fsm/path %1) (:fsm/path %2)))
+      (map :fsm/id))))
+
+(defn calculate-transition-domain-visitor [node index]
+  (let [transition-domain (get-transition-domain index node)
+        ids-in-domain (get-ids-in-domain index transition-domain)]
+    (-> node
+      (assoc :fsm.transition.domain/ids ids-in-domain)
+      (assoc :fsm.transition.domain/idset (set ids-in-domain))
+      (assoc :fsm.transition/domain (:fsm/id transition-domain)))))
 
 (>defn compile
   ([node]
@@ -337,15 +435,7 @@
    (compile node {}))
   ([node context]
    [::root-node map? => map?]
-   (let [expanded (expand-node (assoc context :fsm/cursor {:path []}) node)]
-     {:fsm/tree expanded
-      :fsm/index (build-index expanded)
+   (let [expanded (expand-node (assoc context :fsm/cursor {:path []}) node)
+         context' (update-in context [:visitors :fsm/transition] conj calculate-transition-domain-visitor)]
+     {:fsm/index (visit-nodes (build-index expanded) context')
       :fsm/state {}})))
-
-(comment
-  (clojure.pprint/pprint
-    (compile [:fsm/root {:fsm/initial :a}
-              [:fsm/state {:fsm/id :a}
-               [:fsm/transition {:fsm.transition/target :b :fsm.transition/event :t}]]
-              [:fsm/state {:fsm/id :b}]]
-      {})))

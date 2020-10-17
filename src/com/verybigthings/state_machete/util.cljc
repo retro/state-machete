@@ -20,3 +20,10 @@
   (if (keyword? v) #{v} (set v)))
 
 (defn first-identity [arg & _] arg)
+
+(defn descendant-path? [source target]
+  (let [source-length (count source)
+        target-length (count target)]
+    (and
+      (> target-length source-length)
+      (= source (subvec target 0 source-length)))))
