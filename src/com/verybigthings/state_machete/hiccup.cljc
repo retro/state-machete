@@ -167,9 +167,11 @@
   (let [child-state-ids (mapv :fsm/id child-states)
         initial-id (:fsm/initial attrs)]
     (if initial-id
-      (do
+      ;; TODO validate that initial id is descendant of state
+      #_(do
         (assert (contains? (set child-state-ids) initial-id) (str "Child state with id:" initial-id " doesn't exist"))
         initial-id)
+      initial-id
       (first (remove #(= :fsm/final (:fsm/type %)) child-state-ids)))))
 
 
@@ -400,20 +402,21 @@
                        (sort #(lexicographic-compare (first %1) (first %2)))
                        (map last))]
     (reduce
-      (fn [index' node]
+      (fn [index' [idx node]]
         (let [path (:fsm/path node)
               id (:fsm/id node)
               node-type (:fsm/type node)
               node' (reduce
                       (fn [node' v]
                         (v node' index'))
-                      node
+                      (assoc node :fsm/document-index idx)
                       (get-in context [:visitors node-type]))]
           (-> index'
+            (assoc-in [:id->document-order id] idx)
             (assoc-in [:by-path path] node')
             (assoc-in [:by-id id] node'))))
       index
-      sorted-nodes)))
+      (map-indexed (fn [idx node] [idx node]) sorted-nodes))))
 
 (defn get-ids-in-domain [index transition-domain]
   (let [path (:fsm/path transition-domain)]

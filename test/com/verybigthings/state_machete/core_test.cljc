@@ -492,6 +492,23 @@
       fsm #{:a1}
       [{:fsm/event :t} #{:b}])))
 
+(deftest misc-deep-initial
+  (let [fsm
+        (make-fsm
+          [:fsm/root {:fsm/initial :s2}
+           [:fsm/state]
+           [:fsm/state#foo
+            [:fsm/state#bar]
+            [:fsm/state#baz]
+            [:fsm/state#qux
+             [:fsm/state#bat]
+             [:fsm/state#uber
+              [:fsm/state#s1
+               [:fsm/transition #:fsm.transition{:event :ev1 :target :s2}]]
+              [:fsm/state#s2]]]]])]
+    (is (= #{:fsm/root :foo :qux :uber} (c/get-active-compound-states fsm)))
+    (is (= #{:s2} (c/get-active-atomic-states fsm)))))
+
 (deftest multiple-events-per-transition-0
   (let [fsm
         (make-fsm
@@ -2386,7 +2403,7 @@
         started-fsm (c/start compiled-fsm)
         run-fn1 (fn []
                   (c/trigger started-fsm {:fsm/event :t}))]
-    (cr/with-progress-reporting (cr/bench (run-fn1) :verbose))))
+    (cr/with-progress-reporting (cr/bench (run-fn) :verbose))))
 
 (defn profile []
   (let [fsm [:fsm/root {:fsm/initial :a}
