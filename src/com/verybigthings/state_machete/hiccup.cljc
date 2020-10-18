@@ -4,9 +4,7 @@
              :refer [keyword-or-coll->set first-identity descendant-path? lexicographic-compare]]
             [clojure.spec.alpha :as s]
             [com.fulcrologic.guardrails.core :refer [>defn >def | ? =>]]
-            [clojure.string :as str]
-            [clojure.walk :as walk]
-            [lambdaisland.regal :as regal]))
+            [clojure.string :as str]))
 
 (defn make-valid-node-name? [base-node-kw]
   (let [base-node-ns (namespace base-node-kw)
@@ -152,8 +150,8 @@
 (>def ::expanded-node
   map?)
 
-(def split-at-dot-re (regal/regex [:cat "."]))
-(def split-at-hash-re (regal/regex [:cat "#"]))
+(def split-at-dot-re #"\.")
+(def split-at-hash-re #"#")
 
 (defn get-node-name-and-id [node-name-id]
   (let [ns (namespace node-name-id)
@@ -316,6 +314,9 @@
         (= :fsm/final node-name))
       (assoc :fsm.state/type :atomic)
 
+      (= :fsm/parallel node-name)
+      (assoc :fsm.state/type :compound)
+
       (= :fsm/history node-name)
       process-history-type
 
@@ -329,10 +330,8 @@
       (assoc :fsm/children child-nodes)
 
       (seq child-states)
-      (as-> attrs'
-        (-> attrs'
-          (assoc :fsm.children.states/history-excluded (map :fsm/id (remove #(= :fsm/history (:fsm/type %)) child-states)))
-          (assoc :fsm.children/states (map :fsm/id child-states))))
+      (assoc :fsm.children.states/history-excluded (map :fsm/id (remove #(= :fsm/history (:fsm/type %)) child-states))
+             :fsm.children/states (map :fsm/id child-states))
 
       (seq history-states)
       (assoc :fsm.children.states/history (map :fsm/id history-states))

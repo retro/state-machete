@@ -2376,61 +2376,59 @@
     (is (= #{:b} (c/get-active-atomic-states fsm')))
     (is (= [{:fsm/event :t1} {:fsm/event :t2} {:fsm/event :t3}] (c/get-events fsm')))))
 
-(defn benchmark []
-  (let [fsm [:fsm/root {:fsm/initial :a}
-             [:fsm/parallel#a
-              [:fsm/parallel#b
-               [:fsm/parallel#c
-                [:fsm/parallel#d
-                 [:fsm/parallel#e
-                  [:fsm/state#i {:fsm/initial :i1}
-                   [:fsm/state#i1
-                    [:fsm/transition #:fsm.transition{:target :i2 :event :t}]]
-                   [:fsm/state#i2]]
-                  [:fsm/state#j]]
-                 [:fsm/state#h]]
-                [:fsm/state#g]]
-               [:fsm/state#f {:fsm/initial :f1}
-                [:fsm/state#f1
-                 [:fsm/transition #:fsm.transition{:target :l :event :t}]]
-                [:fsm/state#f2]]]
-              [:fsm/state#k]]
-             [:fsm/state#l]]
-        compiled-fsm (c/compile fsm)
-        run-fn (fn []
-                 (let [f (c/start compiled-fsm)]
-                   (c/trigger f {:fsm/event :t})))
-        started-fsm (c/start compiled-fsm)
-        run-fn1 (fn []
-                  (c/trigger started-fsm {:fsm/event :t}))]
-    (cr/with-progress-reporting (cr/bench (run-fn) :verbose))))
-
-(defn profile []
-  (let [fsm [:fsm/root {:fsm/initial :a}
-             [:fsm/parallel#a
-              [:fsm/parallel#b
-               [:fsm/parallel#c
-                [:fsm/parallel#d
-                 [:fsm/parallel#e
-                  [:fsm/state#i {:fsm/initial :i1}
-                   [:fsm/state#i1
-                    [:fsm/transition #:fsm.transition{:target :i2 :event :t}]]
-                   [:fsm/state#i2]]
-                  [:fsm/state#j]]
-                 [:fsm/state#h]]
-                [:fsm/state#g]]
-               [:fsm/state#f {:fsm/initial :f1}
-                [:fsm/state#f1
-                 [:fsm/transition #:fsm.transition{:target :l :event :t}]]
-                [:fsm/state#f2]]]
-              [:fsm/state#k]]
-             [:fsm/state#l]]
-        compiled-fsm (c/compile fsm)
-        run-fn (fn profile-runner []
-                 (let [f (c/start compiled-fsm)]
-                   (c/trigger f {:fsm/event :t})))]
-    (prof/profile (dotimes [i 100000] (run-fn)))))
-
 (comment
+  (defn benchmark []
+    (let [fsm [:fsm/root {:fsm/initial :a}
+               [:fsm/parallel#a
+                [:fsm/parallel#b
+                 [:fsm/parallel#c
+                  [:fsm/parallel#d
+                   [:fsm/parallel#e
+                    [:fsm/state#i {:fsm/initial :i1}
+                     [:fsm/state#i1
+                      [:fsm/transition #:fsm.transition{:target :i2 :event :t}]]
+                     [:fsm/state#i2]]
+                    [:fsm/state#j]]
+                   [:fsm/state#h]]
+                  [:fsm/state#g]]
+                 [:fsm/state#f {:fsm/initial :f1}
+                  [:fsm/state#f1
+                   [:fsm/transition #:fsm.transition{:target :l :event :t}]]
+                  [:fsm/state#f2]]]
+                [:fsm/state#k]]
+               [:fsm/state#l]]
+          compiled-fsm (c/compile fsm)
+          run-fn (fn []
+                   (let [f (c/start compiled-fsm)]
+                     (c/trigger f {:fsm/event :t})))
+          started-fsm (c/start compiled-fsm)
+          run-fn1 (fn []
+                    (c/trigger started-fsm {:fsm/event :t}))]
+      (cr/with-progress-reporting (cr/bench (run-fn) :verbose))))
+  (defn profile []
+    (let [fsm [:fsm/root {:fsm/initial :a}
+               [:fsm/parallel#a
+                [:fsm/parallel#b
+                 [:fsm/parallel#c
+                  [:fsm/parallel#d
+                   [:fsm/parallel#e
+                    [:fsm/state#i {:fsm/initial :i1}
+                     [:fsm/state#i1
+                      [:fsm/transition #:fsm.transition{:target :i2 :event :t}]]
+                     [:fsm/state#i2]]
+                    [:fsm/state#j]]
+                   [:fsm/state#h]]
+                  [:fsm/state#g]]
+                 [:fsm/state#f {:fsm/initial :f1}
+                  [:fsm/state#f1
+                   [:fsm/transition #:fsm.transition{:target :l :event :t}]]
+                  [:fsm/state#f2]]]
+                [:fsm/state#k]]
+               [:fsm/state#l]]
+          compiled-fsm (c/compile fsm)
+          run-fn (fn profile-runner []
+                   (let [f (c/start compiled-fsm)]
+                     (c/trigger f {:fsm/event :t})))]
+      (prof/profile (dotimes [i 100000] (run-fn)))))
   (benchmark)
   (profile))

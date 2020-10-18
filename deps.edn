@@ -1,14 +1,13 @@
 {:paths ["src" "resources"]
  :deps {org.clojure/clojure {:mvn/version "1.10.1"}
-        lambdaisland/regal {:mvn/version "0.0.89"}
-        com.fulcrologic/guardrails {:mvn/version "0.0.12"}
-        criterium/criterium {:mvn/version "0.4.6"}
-        com.clojure-goes-fast/clj-async-profiler {:mvn/version "0.4.1"}}
+        com.fulcrologic/guardrails {:mvn/version "0.0.12"}}
  :aliases
  {:test {:extra-paths ["test"]
          :jvm-opts ["-Dguardrails.enabled"]
          :extra-deps {lambdaisland/kaocha {:mvn/version "1.0.700"}
-                      org.clojure/test.check {:mvn/version "0.10.0"}}}
+                      org.clojure/test.check {:mvn/version "0.10.0"}
+                      criterium/criterium {:mvn/version "0.4.6"}
+                      com.clojure-goes-fast/clj-async-profiler {:mvn/version "0.4.1"}}}
   :runner
   {:extra-deps {com.cognitect/test-runner
                 {:git/url "https://github.com/cognitect-labs/test-runner"
